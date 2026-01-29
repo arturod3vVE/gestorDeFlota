@@ -1,66 +1,134 @@
 import streamlit as st
 from datetime import datetime
-import json
+import json # Lo mantenemos por si acaso, pero usaremos Sheets
 import os
 import requests
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
+import gspread # <--- NUEVA LIBRERÍA
 
-# --- 1. CONFIGURACIÓN INICIAL (Siempre va primero) ---
+# --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 
 # --- 2. CONFIGURACIÓN DE SEGURIDAD ---
-# CAMBIA ESTA CONTRASEÑA POR LA QUE TÚ QUIERAS
-CONTRASEÑA_ACCESO = "admin123"
+CONTRASEÑA_ACCESO = "admin123" # ¡Recuerda poner tu clave!
 
 def verificar_login():
-    """Muestra la pantalla de login si no está autenticado"""
     if 'autenticado' not in st.session_state:
         st.session_state.autenticado = False
-
     if not st.session_state.autenticado:
-        # Diseño centrado para el login
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.title("🔒 Acceso Restringido")
-            st.markdown("Por favor ingresa la contraseña para gestionar la flota.")
-            
+            st.markdown("Base de datos en la nube conectada.")
             password = st.text_input("Contraseña", type="password")
-            
             if st.button("Ingresar", type="primary", use_container_width=True):
                 if password == CONTRASEÑA_ACCESO:
                     st.session_state.autenticado = True
                     st.rerun()
                 else:
                     st.error("Contraseña incorrecta.")
-        return False # Detiene la ejecución del resto de la app
-    return True # Permite continuar
+        return False
+    return True
 
-# --- 3. SISTEMA DE DATOS ---
-ARCHIVO_DB = 'datos_sistema.json'
-ICONO_BOMBA = "icono_bomba.png"
+# --- 3. CONEXIÓN A GOOGLE SHEETS (BASE DE DATOS) ---
+NOMBRE_HOJA = "DB_GestorFlota" # <--- ASEGÚRATE QUE SE LLAME ASÍ EN GOOGLE
 
-DEFAULT_DATA = {
-    "averiadas": [],
-    "rango_min": 1,
-    "rango_max": 500,
-    "estaciones": ["bp", "Texaco", "Cartonera Petare"] 
-}
-
-def cargar_datos():
-    if not os.path.exists(ARCHIVO_DB): return DEFAULT_DATA
+def conectar_google_sheets():
+    """Conecta a Google Sheets usando los secretos de Streamlit Cloud."""
     try:
-        with open(ARCHIVO_DB, 'r') as f:
-            datos = json.load(f)
-            for key, val in DEFAULT_DATA.items():
-                if key not in datos: datos[key] = val
-            return datos
-    except: return DEFAULT_DATA
+        # Crea credenciales desde los secretos
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        gc = gspread.service_account_from_dict(creds_dict)
+        sh = gc.open(NOMBRE_HOJA)
+        return sh
+    except Exception as e:
+        st.error(f"Error conectando a la base de datos: {e}")
+        return None
 
+def cargar_datos_db():
+    """Lee las 3 pestañas: Config, Estaciones, Averiadas."""
+    # Valores por defecto por si falla la primera vez
+    datos = {
+        "averiadas": [],
+        "rango_min": 1,
+        "rango_max": 500,
+        "estaciones": ["bp", "Texaco", "Cartonera Petare"] 
+    }
+    
+    sh = conectar_google_sheets()
+    if not sh: return datos
+
+    try:
+        # 1. Cargar Configuración (Pestaña 'Config')
+        # Esperamos que A1 sea 'Min' y B1 el valor. A2 'Max' y B2 valor.
+        ws_config = sh.worksheet("Config")
+        vals_config = ws_config.get_all_values()
+        # Buscamos si hay datos, si no, usamos default
+        if len(vals_config) >= 2:
+            # Asumimos estructura simple: Fila 1 -> min, Fila 2 -> max
+            # La columna B tiene el valor
+            datos["rango_min"] = int(vals_config[0][1]) if len(vals_config[0]) > 1 else 1
+            datos["rango_max"] = int(vals_config[1][1]) if len(vals_config[1]) > 1 else 500
+        
+        # 2. Cargar Estaciones (Pestaña 'Estaciones')
+        ws_est = sh.worksheet("Estaciones")
+        lista_est = ws_est.col_values(1) # Leemos columna A
+        if lista_est:
+            datos["estaciones"] = lista_est
+            
+        # 3. Cargar Averiadas (Pestaña 'Averiadas')
+        ws_av = sh.worksheet("Averiadas")
+        lista_av = ws_av.col_values(1) # Leemos columna A
+        # Convertimos a enteros
+        if lista_av:
+            datos["averiadas"] = [int(x) for x in lista_av if x.isdigit()]
+            
+        return datos
+    except Exception as e:
+        st.warning(f"No se pudieron leer datos remotos (usando locales): {e}")
+        return datos
+
+def guardar_datos_db(datos):
+    """Sobrescribe las pestañas con la nueva info."""
+    sh = conectar_google_sheets()
+    if not sh: return
+
+    try:
+        # 1. Guardar Config
+        ws_config = sh.worksheet("Config")
+        ws_config.clear()
+        ws_config.update('A1', [['Min', datos["rango_min"]], ['Max', datos["rango_max"]]])
+        
+        # 2. Guardar Estaciones
+        ws_est = sh.worksheet("Estaciones")
+        ws_est.clear()
+        if datos["estaciones"]:
+            # gspread necesita lista de listas: [['bp'], ['texaco']]
+            matrix_est = [[e] for e in datos["estaciones"]]
+            ws_est.update('A1', matrix_est)
+            
+        # 3. Guardar Averiadas
+        ws_av = sh.worksheet("Averiadas")
+        ws_av.clear()
+        if datos["averiadas"]:
+            matrix_av = [[str(a)] for a in datos["averiadas"]]
+            ws_av.update('A1', matrix_av)
+            
+    except Exception as e:
+        st.error(f"Error guardando en la nube: {e}")
+
+# Inicialización de datos
+if 'datos_app' not in st.session_state:
+    with st.spinner("Conectando con Google Sheets..."):
+        st.session_state.datos_app = cargar_datos_db()
+
+# Wrapper para guardar (para no cambiar todo el codigo de abajo)
 def guardar_datos(datos):
-    with open(ARCHIVO_DB, 'w') as f: json.dump(datos, f)
+    guardar_datos_db(datos)
 
-# --- 4. RECURSOS Y FUNCIONES GRÁFICAS ---
+# --- 4. RECURSOS Y FUNCIONES GRÁFICAS (IGUAL QUE ANTES) ---
+ICONO_BOMBA = "icono_bomba.png"
 def obtener_icono_bomba():
     if not os.path.exists(ICONO_BOMBA):
         try:
@@ -80,7 +148,6 @@ def obtener_icono_bomba():
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
     ANCHO = 600
     COLOR_FONDO = "#ECE5DD" 
-    
     try:
         font_titulo = ImageFont.truetype("arial.ttf", 28)
         font_normal = ImageFont.truetype("arial.ttf", 22)
@@ -92,12 +159,8 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
 
     img = Image.new('RGB', (ANCHO, 2000), color=COLOR_FONDO)
     draw = ImageDraw.Draw(img)
-    
-    y = 30
-    margen = 30
-    ancho_texto = ANCHO - (margen * 2)
+    y = 30; margen = 30; ancho_texto = ANCHO - (margen * 2)
 
-    # Cabecera
     dias = {0:"lunes",1:"martes",2:"miércoles",3:"jueves",4:"viernes",5:"sábado",6:"domingo"}
     fecha_str = f"{dias[fecha_dt.weekday()]} {fecha_dt.strftime('%d/%m/%y')}"
     
@@ -115,12 +178,9 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
     draw.text((ANCHO/2 - w_t2/2, y), titulo2, font=font_titulo, fill="black")
     y += 50
     
-    # Emojis
     icono = obtener_icono_bomba()
     if icono:
-        cantidad = 5
-        ancho_icon = icono.width
-        espacio = 5
+        cantidad = 5; ancho_icon = icono.width; espacio = 5
         total_w = (ancho_icon * cantidad) + (espacio * (cantidad - 1))
         start_x = (ANCHO - total_w) / 2
         for i in range(cantidad):
@@ -131,75 +191,58 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
         draw.text((ANCHO/2 - 60, y), "⛽⛽⛽⛽⛽", font=font_normal, fill="red")
         y += 40
 
-    # Estaciones
     colores = ["#f8d7da", "#fff3cd", "#d1e7dd"] 
     for i, est in enumerate(reporte_lista):
         color = colores[i % 3]
         txt_st = f"• Estación {est['nombre']}: {est['horario']}"
         bbox_st = draw.textbbox((0, 0), txt_st, font=font_bold)
-        
         draw.rectangle([(margen, y), (margen + bbox_st[2] - bbox_st[0] + 10, y + 30)], fill=color)
         draw.text((margen + 5, y + 2), txt_st, font=font_bold, fill="black")
         y += 35
         
         numeros = " ".join(map(str, est['unidades']))
-        palabras = numeros.split()
-        linea = ""
+        palabras = numeros.split(); linea = ""
         for p in palabras:
             prueba = linea + p + " "
             if draw.textbbox((0, 0), prueba, font=font_normal)[2] > ancho_texto:
                 draw.text((margen, y), linea, font=font_normal, fill="black")
-                y += 28 
-                linea = p + " "
+                y += 28; linea = p + " "
             else: linea = prueba
         if linea:
-            draw.text((margen, y), linea, font=font_normal, fill="black")
-            y += 45 
+            draw.text((margen, y), linea, font=font_normal, fill="black"); y += 45 
 
-    # Rango Manual
     txt_ran = "• Rango de unidades"
     bbox_r = draw.textbbox((0, 0), txt_ran, font=font_bold)
     draw.rectangle([(margen, y), (margen + bbox_r[2] - bbox_r[0] + 10, y + 30)], fill="#cff4fc") 
     draw.text((margen + 5, y + 2), txt_ran, font=font_bold, fill="black")
     y += 35
-    draw.text((margen, y), rango_txt, font=font_normal, fill="black")
-    y += 50
+    draw.text((margen, y), rango_txt, font=font_normal, fill="black"); y += 50
 
     img_final = img.crop((0, 0, ANCHO, y))
-    
     buffer = BytesIO()
     img_final.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
 
 # =========================================================
-# LOGICA PRINCIPAL DE LA APLICACIÓN
+# LOGICA PRINCIPAL
 # =========================================================
 
-# 1. VERIFICAMOS LOGIN ANTES DE CARGAR NADA
 if verificar_login():
-    
-    # --- BARRA LATERAL (LOGOUT) ---
     with st.sidebar:
-        st.write(f"🔐 Sesión Iniciada")
+        st.success("☁️ BD Conectada")
         if st.button("Cerrar Sesión", type="secondary"):
             st.session_state.autenticado = False
             st.rerun()
         st.divider()
     
-    # --- CARGA DE DATOS ---
-    if 'datos_app' not in st.session_state:
-        st.session_state.datos_app = cargar_datos()
-
-    st.title("🚍 Sistema de Control de Unidades")
-
     tab_asignacion, tab_flota, tab_config = st.tabs(["⛽ Asignación Diaria", "🔧 Gestión de Flota", "⚙️ Configuración"])
 
-    rango_min_val = st.session_state.datos_app["rango_min"]
-    rango_max_val = st.session_state.datos_app["rango_max"]
+    rango_min_val = st.session_state.datos_app.get("rango_min", 1)
+    rango_max_val = st.session_state.datos_app.get("rango_max", 500)
     todas_las_unidades = list(range(rango_min_val, rango_max_val + 1))
 
-    # --- PESTAÑA CONFIGURACIÓN ---
+    # --- CONFIGURACIÓN ---
     with tab_config:
         st.header("⚙️ Configuración")
         c1, c2 = st.columns(2)
@@ -208,7 +251,8 @@ if verificar_login():
         if st.button("💾 Guardar Rangos"):
             st.session_state.datos_app["rango_min"] = nuevo_min
             st.session_state.datos_app["rango_max"] = nuevo_max
-            guardar_datos(st.session_state.datos_app)
+            guardar_datos(st.session_state.datos_app) # Guarda en Sheets
+            st.success("Guardado en la nube.")
             st.rerun()
 
         st.subheader("Estaciones")
@@ -219,8 +263,9 @@ if verificar_login():
                 guardar_datos(st.session_state.datos_app)
                 st.rerun()
         
-        if st.session_state.datos_app["estaciones"]:
-            for n in st.session_state.datos_app["estaciones"]:
+        estaciones_actuales = st.session_state.datos_app.get("estaciones", [])
+        if estaciones_actuales:
+            for n in estaciones_actuales:
                 c_a, c_b = st.columns([4,1])
                 c_a.text(f"⛽ {n}")
                 if c_b.button("❌", key=f"del_{n}"):
@@ -228,10 +273,12 @@ if verificar_login():
                     guardar_datos(st.session_state.datos_app)
                     st.rerun()
 
-    # --- PESTAÑA TALLER ---
+    # --- TALLER ---
     with tab_flota:
         st.header("🔧 Taller")
-        sanas = [u for u in todas_las_unidades if u not in st.session_state.datos_app["averiadas"]]
+        averiadas = st.session_state.datos_app.get("averiadas", [])
+        sanas = [u for u in todas_las_unidades if u not in averiadas]
+        
         c_add1, c_add2 = st.columns([3, 1], vertical_alignment="bottom")
         nuevas = c_add1.multiselect("Enviar a taller:", sanas)
         if c_add2.button("🔴 Reportar", use_container_width=True):
@@ -242,40 +289,40 @@ if verificar_login():
                 st.rerun()
         
         st.divider()
-        if st.session_state.datos_app["averiadas"]:
+        if averiadas:
             st.info("Clic para reparar:")
             cols = st.columns(6)
-            for i, u in enumerate(st.session_state.datos_app["averiadas"]):
+            for i, u in enumerate(averiadas):
                 if cols[i % 6].button(f"🚍 {u} 🔧", key=f"fix_{u}", use_container_width=True):
                     st.session_state.datos_app["averiadas"].remove(u)
                     guardar_datos(st.session_state.datos_app)
                     st.rerun()
         else: st.success("Flota operativa.")
 
-    # --- PESTAÑA ASIGNACIÓN ---
+    # --- ASIGNACIÓN ---
     with tab_asignacion:
-        if 'editando_idx' not in st.session_state:
-            st.session_state.editando_idx = None
-
+        if 'editando_idx' not in st.session_state: st.session_state.editando_idx = None
+        
         cf1, cf2 = st.columns([1, 3], vertical_alignment="bottom")
         fecha_rep = cf1.date_input("📅 Fecha", datetime.now())
         cf2.info(f"Reporte: **{fecha_rep.strftime('%d/%m/%Y')}**")
-        
         st.divider()
-        unidades_op = [u for u in todas_las_unidades if u not in st.session_state.datos_app["averiadas"]]
+        
+        averiadas = st.session_state.datos_app.get("averiadas", [])
+        unidades_op = [u for u in todas_las_unidades if u not in averiadas]
         if 'reporte_diario' not in st.session_state: st.session_state.reporte_diario = []
         ya_asig = [u for est in st.session_state.reporte_diario for u in est['unidades']]
         disp = [u for u in unidades_op if u not in ya_asig]
 
         cm1, cm2, cm3 = st.columns(3)
         cm1.metric("Flota", len(todas_las_unidades))
-        cm2.metric("Taller", len(st.session_state.datos_app["averiadas"]))
+        cm2.metric("Taller", len(averiadas))
         cm3.metric("Libres", len(disp))
 
         with st.expander("➕ Asignar Estación", expanded=True):
             with st.form("main_form"):
                 ca, cb = st.columns([1, 2])
-                nombres = st.session_state.datos_app["estaciones"]
+                nombres = st.session_state.datos_app.get("estaciones", [])
                 nom = ca.selectbox("Estación", nombres) if nombres else ca.text_input("Nombre")
                 ch1, ch2 = cb.columns(2)
                 t1 = ch1.time_input("Abre", datetime.strptime("09:00", "%H:%M").time())
@@ -291,14 +338,12 @@ if verificar_login():
         if st.session_state.reporte_diario:
             st.divider()
             st.subheader("Resumen de Asignaciones")
-            
             for i, est in enumerate(st.session_state.reporte_diario):
                 with st.container(border=True):
                     c_head1, c_head2 = st.columns([0.65, 0.35], vertical_alignment="center")
                     with c_head1:
                         st.markdown(f"#### ⛽ {est['nombre']}")
                         st.caption(f"🕒 {est['horario']}")
-                    
                     with c_head2:
                         ce1, ce2 = st.columns(2)
                         if ce1.button("✏️", key=f"edit_btn_{i}", help="Editar", use_container_width=True):
@@ -308,9 +353,7 @@ if verificar_login():
                             st.session_state.reporte_diario.pop(i)
                             st.session_state.editando_idx = None 
                             st.rerun()
-
                     unidades_lista = est['unidades']
-                    
                     if st.session_state.editando_idx == i:
                         st.info("Toca una unidad para eliminarla:")
                         if unidades_lista:
@@ -335,8 +378,6 @@ if verificar_login():
 
             st.divider()
             st.subheader("🖼️ Imagen Final")
-            
-            # Texto manual del rango
             texto_rango_default = f"Unidades desde la {rango_min_val} a {rango_max_val}"
             rango_manual = st.text_input("Texto del Rango Final:", value=texto_rango_default)
 
@@ -346,10 +387,4 @@ if verificar_login():
             
             if 'imagen_en_memoria' in st.session_state:
                 st.image(st.session_state.imagen_en_memoria)
-                st.download_button(
-                    label="📥 Descargar Imagen", 
-                    data=st.session_state.imagen_en_memoria, 
-                    file_name=f"Reporte_{fecha_rep.strftime('%d-%m-%y')}.png", 
-                    mime="image/png",
-                    use_container_width=True
-                )
+                st.download_button("📥 Descargar Imagen", st.session_state.imagen_en_memoria, f"Reporte_{fecha_rep.strftime('%d-%m-%y')}.png", "image/png", use_container_width=True)
