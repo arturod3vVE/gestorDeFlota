@@ -10,6 +10,15 @@ import gspread
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 
+st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        .stApp { margin-top: -80px; } /* Sube un poco el contenido para aprovechar el espacio vacío */
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 2. CONEXIÓN A GOOGLE SHEETS ---
 NOMBRE_HOJA = "DB_GestorFlota"
 
