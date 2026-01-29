@@ -1,29 +1,143 @@
 import streamlit as st
 from datetime import datetime
-import json # Lo mantenemos por si acaso, pero usaremos Sheets
+import json
 import os
 import requests
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
-import gspread # <--- NUEVA LIBRERÍA
+import gspread
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 
-# --- 2. CONFIGURACIÓN DE SEGURIDAD ---
-CONTRASEÑA_ACCESO = "admin123" # ¡Recuerda poner tu clave!
+# --- 2. CONEXIÓN A GOOGLE SHEETS ---
+NOMBRE_HOJA = "DB_GestorFlota"
 
+def conectar_google_sheets():
+    """Conecta a Google Sheets usando los secretos de Streamlit Cloud."""
+    try:
+        # Intenta usar secretos de la nube, si falla (local), usa archivo json si existe
+        if "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            gc = gspread.service_account_from_dict(creds_dict)
+            return gc.open(NOMBRE_HOJA)
+        else:
+            # Fallback para desarrollo local si tienes el json
+            gc = gspread.service_account("datos_sistema.json") # Asegúrate de tener el json si corres local
+            return gc.open(NOMBRE_HOJA)
+    except Exception as e:
+        return None
+
+def cargar_datos_db():
+    """Carga configuración, contraseña y datos."""
+    datos = {
+        "averiadas": [],
+        "rango_min": 1,
+        "rango_max": 500,
+        "estaciones": ["bp", "Texaco", "Cartonera Petare"],
+        "password": "admin" # Contraseña de respaldo por si falla la conexión
+    }
+    
+    sh = conectar_google_sheets()
+    if not sh: return datos
+
+    try:
+        # 1. Cargar Configuración y PASSWORD (Pestaña 'Config')
+        ws_config = sh.worksheet("Config")
+        vals_config = ws_config.get_all_values()
+        
+        # Esperamos estructura: 
+        # Fila 1: Min | 1
+        # Fila 2: Max | 500
+        # Fila 3: Password | TuClave
+        
+        if len(vals_config) >= 1:
+            datos["rango_min"] = int(vals_config[0][1]) if len(vals_config[0]) > 1 else 1
+        if len(vals_config) >= 2:
+            datos["rango_max"] = int(vals_config[1][1]) if len(vals_config[1]) > 1 else 500
+        if len(vals_config) >= 3:
+            # AQUÍ TOMAMOS LA CONTRASEÑA DE LA NUBE
+            datos["password"] = vals_config[2][1] if len(vals_config[2]) > 1 else "admin"
+        
+        # 2. Cargar Estaciones
+        try:
+            ws_est = sh.worksheet("Estaciones")
+            lista_est = ws_est.col_values(1)
+            if lista_est: datos["estaciones"] = lista_est
+        except: pass
+            
+        # 3. Cargar Averiadas
+        try:
+            ws_av = sh.worksheet("Averiadas")
+            lista_av = ws_av.col_values(1)
+            if lista_av: datos["averiadas"] = [int(x) for x in lista_av if x.isdigit()]
+        except: pass
+            
+        return datos
+    except Exception as e:
+        return datos
+
+def guardar_datos_db(datos):
+    """Guarda cambios en la nube."""
+    sh = conectar_google_sheets()
+    if not sh: return
+
+    try:
+        # Guardar Config (Incluyendo mantener la contraseña que ya estaba)
+        ws_config = sh.worksheet("Config")
+        ws_config.clear()
+        # Reescribimos las 3 filas para no perder la clave
+        ws_config.update('A1', [
+            ['Min', datos["rango_min"]], 
+            ['Max', datos["rango_max"]],
+            ['Password', datos["password"]]
+        ])
+        
+        # Guardar Estaciones
+        ws_est = sh.worksheet("Estaciones")
+        ws_est.clear()
+        if datos["estaciones"]:
+            ws_est.update('A1', [[e] for e in datos["estaciones"]])
+            
+        # Guardar Averiadas
+        ws_av = sh.worksheet("Averiadas")
+        ws_av.clear()
+        if datos["averiadas"]:
+            ws_av.update('A1', [[str(a)] for a in datos["averiadas"]])
+            
+    except Exception as e:
+        st.error(f"Error guardando: {e}")
+
+# --- 3. CARGA DE DATOS (ANTES DEL LOGIN) ---
+# Necesitamos cargar los datos AHORA para saber cuál es la contraseña real
+if 'datos_app' not in st.session_state:
+    with st.spinner("Conectando con base de datos segura..."):
+        st.session_state.datos_app = cargar_datos_db()
+
+# Wrapper para guardar
+def guardar_datos(datos):
+    guardar_datos_db(datos)
+
+
+# --- 4. SISTEMA DE LOGIN SEGURO ---
 def verificar_login():
     if 'autenticado' not in st.session_state:
         st.session_state.autenticado = False
+
     if not st.session_state.autenticado:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.title("🔒 Acceso Restringido")
-            st.markdown("Base de datos en la nube conectada.")
-            password = st.text_input("Contraseña", type="password")
-            if st.button("Ingresar", type="primary", use_container_width=True):
-                if password == CONTRASEÑA_ACCESO:
+            st.title("🔒 Acceso Seguro")
+            st.markdown("Gestor de Flota v2.0")
+            
+            # Obtenemos la contraseña real desde los datos cargados
+            password_real = st.session_state.datos_app.get("password", "admin")
+            
+            password_input = st.text_input("Contraseña de acceso", type="password")
+            
+            if st.button("Iniciar Sesión", type="primary", use_container_width=True):
+                # Comparamos lo que escribió el usuario con lo que bajamos de Sheets
+                if password_input == password_real:
                     st.session_state.autenticado = True
                     st.rerun()
                 else:
@@ -31,103 +145,7 @@ def verificar_login():
         return False
     return True
 
-# --- 3. CONEXIÓN A GOOGLE SHEETS (BASE DE DATOS) ---
-NOMBRE_HOJA = "DB_GestorFlota" # <--- ASEGÚRATE QUE SE LLAME ASÍ EN GOOGLE
-
-def conectar_google_sheets():
-    """Conecta a Google Sheets usando los secretos de Streamlit Cloud."""
-    try:
-        # Crea credenciales desde los secretos
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        gc = gspread.service_account_from_dict(creds_dict)
-        sh = gc.open(NOMBRE_HOJA)
-        return sh
-    except Exception as e:
-        st.error(f"Error conectando a la base de datos: {e}")
-        return None
-
-def cargar_datos_db():
-    """Lee las 3 pestañas: Config, Estaciones, Averiadas."""
-    # Valores por defecto por si falla la primera vez
-    datos = {
-        "averiadas": [],
-        "rango_min": 1,
-        "rango_max": 500,
-        "estaciones": ["bp", "Texaco", "Cartonera Petare"] 
-    }
-    
-    sh = conectar_google_sheets()
-    if not sh: return datos
-
-    try:
-        # 1. Cargar Configuración (Pestaña 'Config')
-        # Esperamos que A1 sea 'Min' y B1 el valor. A2 'Max' y B2 valor.
-        ws_config = sh.worksheet("Config")
-        vals_config = ws_config.get_all_values()
-        # Buscamos si hay datos, si no, usamos default
-        if len(vals_config) >= 2:
-            # Asumimos estructura simple: Fila 1 -> min, Fila 2 -> max
-            # La columna B tiene el valor
-            datos["rango_min"] = int(vals_config[0][1]) if len(vals_config[0]) > 1 else 1
-            datos["rango_max"] = int(vals_config[1][1]) if len(vals_config[1]) > 1 else 500
-        
-        # 2. Cargar Estaciones (Pestaña 'Estaciones')
-        ws_est = sh.worksheet("Estaciones")
-        lista_est = ws_est.col_values(1) # Leemos columna A
-        if lista_est:
-            datos["estaciones"] = lista_est
-            
-        # 3. Cargar Averiadas (Pestaña 'Averiadas')
-        ws_av = sh.worksheet("Averiadas")
-        lista_av = ws_av.col_values(1) # Leemos columna A
-        # Convertimos a enteros
-        if lista_av:
-            datos["averiadas"] = [int(x) for x in lista_av if x.isdigit()]
-            
-        return datos
-    except Exception as e:
-        st.warning(f"No se pudieron leer datos remotos (usando locales): {e}")
-        return datos
-
-def guardar_datos_db(datos):
-    """Sobrescribe las pestañas con la nueva info."""
-    sh = conectar_google_sheets()
-    if not sh: return
-
-    try:
-        # 1. Guardar Config
-        ws_config = sh.worksheet("Config")
-        ws_config.clear()
-        ws_config.update('A1', [['Min', datos["rango_min"]], ['Max', datos["rango_max"]]])
-        
-        # 2. Guardar Estaciones
-        ws_est = sh.worksheet("Estaciones")
-        ws_est.clear()
-        if datos["estaciones"]:
-            # gspread necesita lista de listas: [['bp'], ['texaco']]
-            matrix_est = [[e] for e in datos["estaciones"]]
-            ws_est.update('A1', matrix_est)
-            
-        # 3. Guardar Averiadas
-        ws_av = sh.worksheet("Averiadas")
-        ws_av.clear()
-        if datos["averiadas"]:
-            matrix_av = [[str(a)] for a in datos["averiadas"]]
-            ws_av.update('A1', matrix_av)
-            
-    except Exception as e:
-        st.error(f"Error guardando en la nube: {e}")
-
-# Inicialización de datos
-if 'datos_app' not in st.session_state:
-    with st.spinner("Conectando con Google Sheets..."):
-        st.session_state.datos_app = cargar_datos_db()
-
-# Wrapper para guardar (para no cambiar todo el codigo de abajo)
-def guardar_datos(datos):
-    guardar_datos_db(datos)
-
-# --- 4. RECURSOS Y FUNCIONES GRÁFICAS (IGUAL QUE ANTES) ---
+# --- 5. RECURSOS GRÁFICOS ---
 ICONO_BOMBA = "icono_bomba.png"
 def obtener_icono_bomba():
     if not os.path.exists(ICONO_BOMBA):
@@ -147,7 +165,7 @@ def obtener_icono_bomba():
 
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
     ANCHO = 600
-    COLOR_FONDO = "#FFFFFF" 
+    COLOR_FONDO = "#ECE5DD" 
     try:
         font_titulo = ImageFont.truetype("arial.ttf", 28)
         font_normal = ImageFont.truetype("arial.ttf", 22)
@@ -228,9 +246,11 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
 # LOGICA PRINCIPAL
 # =========================================================
 
+# Solo si pasa el login, mostramos la app
 if verificar_login():
+    
     with st.sidebar:
-        st.success("☁️ BD Conectada")
+        st.success("☁️ Conectado")
         if st.button("Cerrar Sesión", type="secondary"):
             st.session_state.autenticado = False
             st.rerun()
@@ -248,11 +268,11 @@ if verificar_login():
         c1, c2 = st.columns(2)
         nuevo_min = c1.number_input("Inicial", value=rango_min_val, min_value=1)
         nuevo_max = c2.number_input("Final", value=rango_max_val, min_value=1)
-        if st.button("💾 Guardar Rangos"):
+        if st.button("💾 Guardar Cambios"):
             st.session_state.datos_app["rango_min"] = nuevo_min
             st.session_state.datos_app["rango_max"] = nuevo_max
-            guardar_datos(st.session_state.datos_app) # Guarda en Sheets
-            st.success("Guardado en la nube.")
+            guardar_datos(st.session_state.datos_app)
+            st.success("Configuración actualizada en la nube.")
             st.rerun()
 
         st.subheader("Estaciones")
