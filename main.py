@@ -147,7 +147,7 @@ def obtener_icono_bomba():
 
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt):
     ANCHO = 600
-    COLOR_FONDO = "#ECE5DD" 
+    COLOR_FONDO = "#FFFFFF" 
     try:
         font_titulo = ImageFont.truetype("arial.ttf", 28)
         font_normal = ImageFont.truetype("arial.ttf", 22)
