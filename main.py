@@ -1,8 +1,8 @@
 import streamlit as st
 from datetime import datetime
 import urllib.parse
-import base64 # Necesario para convertir la imagen a código para JS
-import streamlit.components.v1 as components # Para inyectar el código JS
+import base64 
+import streamlit.components.v1 as components 
 
 # IMPORTACIONES
 from database import cargar_datos_db, guardar_datos_db, guardar_historial_db, recuperar_historial_por_fecha
@@ -13,11 +13,10 @@ from utils import inyectar_css, verificar_login, selector_de_rangos, obtener_lis
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 inyectar_css()
 
-# --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO (COMO LOS BANCOS) ---
+# --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO ---
 def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     """
-    Inyecta un botón HTML/JS que usa la API nativa del celular para compartir archivos.
-    Esto permite enviar la imagen a WhatsApp directamente sin descargarla manualmente.
+    Botón verde 'Compartir' ajustado visualmente para parecerse a los nativos de Streamlit.
     """
     b64 = base64.b64encode(img_bytes.getvalue()).decode()
     
@@ -25,65 +24,71 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     <html>
         <head>
         <style>
+            body {{
+                margin: 0;
+                padding: 0;
+                background-color: transparent;
+            }}
             .btn-share {{
-                display: inline-flex;
+                display: flex;
                 align-items: center;
                 justify-content: center;
                 width: 100%;
-                padding: 0.5rem 1rem;
-                background-color: #25D366; /* Color WhatsApp */
+                height: 2.5rem; /* Altura estándar de botones Streamlit (~40px) */
+                background-color: #25D366;
                 color: white;
                 font-weight: 600;
-                border: none;
+                border: 1px solid rgba(0,0,0,0.1);
                 border-radius: 0.5rem;
                 cursor: pointer;
                 font-family: "Source Sans Pro", sans-serif;
-                text-decoration: none;
                 font-size: 1rem;
-                transition: background-color 0.2s;
+                text-decoration: none;
+                box-sizing: border-box; /* Asegura que el padding no aumente el tamaño */
+                transition: background-color 0.2s, box-shadow 0.2s;
             }}
             .btn-share:hover {{
                 background-color: #128C7E;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }}
             .btn-share:active {{
-                transform: scale(0.98);
+                transform: scale(0.99);
+                background-color: #075E54;
             }}
         </style>
         </head>
         <body>
             <button class="btn-share" onclick="compartir()">
-                📲 Enviar Imagen a WhatsApp
+                📲 Compartir
             </button>
 
             <script>
             async function compartir() {{
                 const b64 = "{b64}";
-                // Convertir Base64 a Blob (Archivo en memoria del navegador)
                 const res = await fetch("data:image/png;base64," + b64);
                 const blob = await res.blob();
                 const file = new File([blob], "{nombre_archivo}", {{ type: "image/png" }});
 
-                // Verificar si el navegador soporta compartir archivos (Casi todos los móviles lo hacen)
                 if (navigator.share && navigator.canShare({{ files: [file] }})) {{
                     try {{
                         await navigator.share({{
                             files: [file],
                             title: 'Reporte de Flota',
-                            text: 'Adjunto el reporte de asignación.'
+                            text: 'Reporte de asignación.'
                         }});
                     }} catch (err) {{
-                        console.log('Error o cancelación:', err);
+                        console.log('Cancelado/Error:', err);
                     }}
                 }} else {{
-                    alert('Tu navegador no permite compartir archivos directos. Por favor usa el botón "Descargar Imagen" arriba.');
+                    alert('Tu navegador no soporta compartir imágenes directo. Usa el botón "Descargar".');
                 }}
             }}
             </script>
         </body>
     </html>
     """
-    # Altura suficiente para que se vea el botón
-    components.html(html_code, height=50)
+    # Ajustamos height=45 para que no sobre espacio vertical y quede alineado
+    components.html(html_code, height=45)
 
 # 2. Control de Acceso
 is_authenticated, cookie_manager = verificar_login()
@@ -107,7 +112,6 @@ if is_authenticated:
         st.divider()
         st.write("📍 **Navegación**")
         
-        # BOTONERA DE NAVEGACIÓN
         estilo_asig = "primary" if st.session_state.vista_actual == "Asignacion" else "secondary"
         st.button("⛽ Asignación", key="nav_asig", type=estilo_asig, use_container_width=True, on_click=cambiar_vista, args=("Asignacion",))
         
@@ -119,7 +123,6 @@ if is_authenticated:
         
         st.divider()
         
-        # BOTONES DE ACCIÓN
         if st.button("🔄 Recargar Datos", use_container_width=True, help="Fuerza la recarga desde la base de datos"):
             if 'datos_app' in st.session_state: del st.session_state['datos_app']
             if 'reporte_diario' in st.session_state: del st.session_state['reporte_diario']
@@ -128,7 +131,6 @@ if is_authenticated:
             
         st.write("") 
         
-        # CERRAR SESIÓN
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
@@ -250,7 +252,6 @@ if is_authenticated:
                         if st.button("Quitar selección", key=f"brm{i}") and to_rm:
                             for x in to_rm: e['unidades'].remove(x)
                             st.rerun()
-                        
                         others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
                         cands = [u for u in op if u not in others and u not in e['unidades']]
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
@@ -265,36 +266,31 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            # --- ZONA DE ACCIONES DE EXPORTACIÓN ---
+            c_fot, c_wa, c_his = st.columns(3)
             
-            # 1. Generar la imagen en memoria (si no existe o si cambia algo)
-            # Para optimizar, lo generamos al vuelo antes de mostrar los botones si no está
-            if 'img_mem' not in st.session_state or st.button("🔄 Regenerar Imagen Previa"):
+            if c_fot.button("📸 FOTO", type="primary", use_container_width=True):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
-
-            # Mostrar vista previa
+            
+            # --- ZONA DE VISTA PREVIA Y BOTONES ---
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
                 
-                # Columnas para los botones
-                col_w, col_d, col_h = st.columns(3)
+                # Columnas para los botones finales (Ahora alineados)
+                bc1, bc2, bc3 = st.columns(3)
                 
-                # BOTÓN 1: COMPARTIR WHATSAPP (NATIVO - IMAGEN)
-                with col_w:
-                    # Invocamos la función JS
-                    accion_compartir_nativa(st.session_state.img_mem, "Reporte_Flota.png")
+                with bc1:
+                    # Botón verde ajustado
+                    accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
                 
-                # BOTÓN 2: DESCARGAR (CLÁSICO)
-                with col_d:
+                with bc2:
                     st.download_button("📥 Guardar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
                 
-                # BOTÓN 3: HISTORIAL
-                with col_h:
+                with bc3:
                     if st.button("💾 Historial", use_container_width=True):
                         if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
                             st.success("OK")
 
-            # Link de texto (Backup)
+            # Texto Backup
             st.caption("Opción alternativa (Solo texto):")
             msg_wa = f"*REPORTE DE FLOTA - {fr.strftime('%d/%m/%Y')}*\n_{usuario_actual.upper()}_\n\n"
             for item in st.session_state.reporte_diario:
@@ -349,7 +345,6 @@ if is_authenticated:
     elif st.session_state.vista_actual == "Configuracion":
         st.title("⚙️ Configuración del Sistema")
         
-        # Inicialización variables
         if "k_width" not in st.session_state: st.session_state.k_width = d.get("img_width", 450)
         if "k_font" not in st.session_state: st.session_state.k_font = d.get("font_size", 24)
         if "k_bg" not in st.session_state: st.session_state.k_bg = d.get("bg_color", "#ECE5DD")
@@ -368,7 +363,6 @@ if is_authenticated:
             for i in range(6): st.session_state[f"k_c_{i}"] = rc[i]
             st.toast("↺ Valores restaurados")
 
-        # Interruptor para Vista Previa
         mostrar_preview = st.toggle("👁️ Mostrar Vista Previa en tiempo real", value=False)
         st.markdown("---")
 
@@ -379,7 +373,6 @@ if is_authenticated:
             col_preview = None
         
         with col_config:
-            # 1. RANGOS
             with st.expander("📍 1. Rangos de Flota", expanded=True):
                 rangos_actuales = d.get("rangos", [])
                 
@@ -412,7 +405,6 @@ if is_authenticated:
                         else:
                             d["rangos"].append([n_min, n_max]); d["rangos"].sort(key=lambda x: x[0]); guardar(); st.rerun()
 
-            # 2. APARIENCIA
             with st.expander("🎨 2. Personalizar Apariencia", expanded=False):
                 c3, c4 = st.columns(2)
                 ni = c3.slider("Ancho Imagen", 300, 800, key="k_width")
@@ -441,7 +433,6 @@ if is_authenticated:
                 with b_cancel:
                     st.button("✖️ Restaurar", type="secondary", width='stretch', on_click=revertir_cambios)
 
-            # 3. ESTACIONES
             with st.expander("⛽ 3. Gestión de Estaciones", expanded=False):
                 c_add, c_del = st.columns(2, gap="large")
                 
