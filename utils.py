@@ -3,7 +3,7 @@ import pyotp
 import qrcode
 import time
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 from database import validar_usuario_db, registrar_usuario_con_totp, restablecer_con_totp
 
@@ -15,36 +15,37 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
-# --- CORRECCIÓN: Quitamos el decorador de caché problemático ---
-# El CookieManager no debe cachearse porque necesita interactuar con el navegador en cada carga
+# --- 1. FUNCIÓN PARA OBTENER EL GESTOR (CON KEY FIJA) ---
 def get_cookie_manager():
-    return stx.CookieManager()
+    # IMPORTANTE: La 'key' fija evita que se reinicie al dar F5
+    return stx.CookieManager(key="gestor_cookies_flota")
 
 def verificar_login():
     """
     Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
     """
-    # 1. Inicializamos el gestor de cookies sin caché
     cookie_manager = get_cookie_manager()
     
-    # Intentamos leer la cookie "gestor_flota_user"
-    # El sleep(0.1) a veces ayuda a stx a sincronizar, pero probemos directo primero
+    # Intentamos leer la cookie
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
-    # 2. Inicializamos variables de sesión si no existen
+    # Inicializamos variables de sesión
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
     if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
 
-    # 3. Lógica de Persistencia (Si hay cookie, autologin)
+    # --- LÓGICA DE PERSISTENCIA ---
+    # Si la cookie existe y la sesión está vacía, recuperamos la sesión
     if cookie_user and not st.session_state.autenticado:
         st.session_state.autenticado = True
         st.session_state.usuario_actual = cookie_user
+        # Forzamos un pequeño rerun para que la UI se actualice con el usuario cargado
+        # st.rerun() # A veces es necesario, a veces no. Lo dejamos comentado por ahora.
 
-    # 4. Si ya estamos autenticados (por cookie o por sesión), retornamos True
+    # Si ya estamos autenticados, retornamos éxito
     if st.session_state.autenticado:
         return True, cookie_manager
 
-    # 5. Si NO estamos autenticados, mostramos el Login
+    # --- PANTALLA DE LOGIN ---
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("Gestor de Flota ⛽")
@@ -59,14 +60,18 @@ def verificar_login():
             
             if btn_in:
                 if validar_usuario_db(user, pwd):
-                    # Login correcto
+                    # 1. Actualizar Sesión
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = user.lower().strip()
                     
-                    # SI ELIGIÓ MANTENER SESIÓN, GUARDAMOS LA COOKIE
+                    # 2. Guardar Cookie (Si seleccionó mantener)
                     if mantener:
-                        cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime(2030, 1, 1))
+                        # Expiración lejana (30 días)
+                        cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                     
+                    # 3. Espera vital para que el navegador procese la cookie antes del rerun
+                    st.success("Accediendo...")
+                    time.sleep(1) 
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas.")
@@ -105,11 +110,14 @@ def verificar_login():
                     if ok:
                         st.success("✅ Registro Exitoso!")
                         del st.session_state['temp_totp_secret']
-                        # Al registrarse también guardamos cookie para entrar directo
-                        cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime(2030, 1, 1))
+                        
+                        # Autologin tras registro
+                        cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
-                        time.sleep(1) 
+                        
+                        st.success("Entrando...")
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -129,7 +137,6 @@ def verificar_login():
                 if ok: st.success(msg)
                 else: st.error(msg)
 
-    # Retornamos False si no se ha logueado
     return False, cookie_manager
 
 def obtener_lista_horas_puntuales():
