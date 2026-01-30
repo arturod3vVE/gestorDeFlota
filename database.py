@@ -81,7 +81,7 @@ def cargar_datos_db(usuario):
     sh = conectar_google_sheets()
     if not sh: return {}
     
-    # Datos por defecto (AQUÍ AÑADIMOS EL COLOR DE TEXTO)
+    # Datos por defecto
     datos = {
         "rangos": [[1, 500]],
         "averiadas": [],
@@ -89,7 +89,7 @@ def cargar_datos_db(usuario):
         "font_size": 24,
         "img_width": 450,
         "bg_color": "#ECE5DD",
-        "text_color": "#000000", # Nuevo valor por defecto (Negro)
+        "text_color": "#000000",
         "st_colors": ["#f8d7da"]*6
     }
     
@@ -131,7 +131,7 @@ def cargar_datos_db(usuario):
         if "FontSize" in config_dict: datos["font_size"] = int(config_dict["FontSize"])
         if "ImgWidth" in config_dict: datos["img_width"] = int(config_dict["ImgWidth"])
         if "BgColor" in config_dict: datos["bg_color"] = config_dict["BgColor"]
-        if "TextColor" in config_dict: datos["text_color"] = config_dict["TextColor"] # LEER COLOR TEXTO
+        if "TextColor" in config_dict: datos["text_color"] = config_dict["TextColor"]
         if "StColors" in config_dict:
             try: datos["st_colors"] = json.loads(config_dict["StColors"])
             except: pass
@@ -161,7 +161,7 @@ def guardar_datos_db(datos, usuario):
             ["FontSize", datos.get("font_size", 24)],
             ["ImgWidth", datos.get("img_width", 450)],
             ["BgColor", datos.get("bg_color", "#ECE5DD")],
-            ["TextColor", datos.get("text_color", "#000000")], # GUARDAR COLOR TEXTO
+            ["TextColor", datos.get("text_color", "#000000")],
             ["StColors", json_colors]
         ]
         
@@ -172,7 +172,7 @@ def guardar_datos_db(datos, usuario):
         st.error(f"Error guardando: {e}")
         return False
 
-# --- HISTORIAL ---
+# --- HISTORIAL (CORREGIDO) ---
 def guardar_historial_db(fecha, reporte, usuario):
     sh = conectar_google_sheets()
     if not sh: return False
@@ -180,14 +180,26 @@ def guardar_historial_db(fecha, reporte, usuario):
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
-        if not ws.get_all_values():
-            ws.append_row(["Fecha", "Usuario", "JSON"])
+        # --- CORRECCIÓN: Verificar encabezados explícitamente ---
+        encabezados = ["Fecha", "Usuario", "JSON"]
+        
+        # Leemos solo la primera fila
+        primera_fila = ws.row_values(1)
+        
+        # Si la primera fila no coincide con los encabezados (o está vacía)
+        if not primera_fila or primera_fila != encabezados:
+            # Insertamos los encabezados en la Fila 1
+            ws.insert_row(encabezados, index=1)
             
         fecha_str = fecha.strftime("%Y-%m-%d")
         json_reporte = json.dumps(reporte, ensure_ascii=False)
+        
+        # Guardamos la fila nueva (se añadirá DESPUÉS de los encabezados)
         ws.append_row([fecha_str, usuario, json_reporte])
         return True
-    except: return False
+    except Exception as e: 
+        print(f"Error guardando historial: {e}")
+        return False
 
 def recuperar_historial_por_fecha(fecha, usuario):
     sh = conectar_google_sheets()
@@ -196,10 +208,18 @@ def recuperar_historial_por_fecha(fecha, usuario):
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
-        records = ws.get_all_records()
+        # Usamos get_all_records que espera encabezados en la fila 1
+        # Si no hay encabezados, puede fallar, así que lo protegemos
+        try:
+            records = ws.get_all_records()
+        except:
+            # Si falla (ej: hoja vacía o corrupta), devolvemos lista vacía
+            return []
+            
         fecha_target = fecha.strftime("%Y-%m-%d")
         encontrado = []
         for r in records:
+            # Convertimos a string por seguridad
             if str(r.get("Fecha")) == fecha_target:
                 try: encontrado = json.loads(r.get("JSON", "[]"))
                 except: pass
