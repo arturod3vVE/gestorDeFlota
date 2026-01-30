@@ -15,8 +15,8 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
-# --- CORRECCIÓN: ELIMINAMOS @st.cache_resource ---
-# El CookieManager debe crearse en cada ejecución para interactuar con el navegador
+# --- CORRECCIÓN: Quitamos el decorador de caché problemático ---
+# El CookieManager no debe cachearse porque necesita interactuar con el navegador en cada carga
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -24,11 +24,11 @@ def verificar_login():
     """
     Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
     """
-    # 1. Inicializamos el gestor de cookies
+    # 1. Inicializamos el gestor de cookies sin caché
     cookie_manager = get_cookie_manager()
     
     # Intentamos leer la cookie "gestor_flota_user"
-    # Nota: stx a veces necesita un pequeño refresh para captar la cookie en la primera carga
+    # El sleep(0.1) a veces ayuda a stx a sincronizar, pero probemos directo primero
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
     # 2. Inicializamos variables de sesión si no existen
@@ -109,7 +109,7 @@ def verificar_login():
                         cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime(2030, 1, 1))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
-                        time.sleep(1) # Dar tiempo a la cookie
+                        time.sleep(1) 
                         st.rerun()
                     else:
                         st.error(msg)
@@ -139,7 +139,6 @@ def obtener_lista_horas_puntuales():
         horas.append(t)
     return horas
 
-# --- SELECTOR DE RANGOS (INPUTS) ---
 def selector_de_rangos(pool_unidades, key_unico, default_str=None):
     if not pool_unidades:
         st.info("No hay unidades disponibles.")
@@ -169,4 +168,9 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
         opciones_filtradas = pool_sorted
 
     seleccion = st.multiselect(
-        f"Seleccionar
+        f"Seleccionar unidades ({len(opciones_filtradas)}):", 
+        opciones_filtradas, 
+        key=f"multi_{key_unico}"
+    )
+    
+    return seleccion
