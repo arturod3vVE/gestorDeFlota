@@ -2,3 +2,6 @@ streamlit
 Pillow
 requests
 gspread
+pyotp
+qrcode
+pillow
