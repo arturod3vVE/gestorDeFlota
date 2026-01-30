@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime
 import urllib.parse
 import base64 
+import time # IMPORTANTE: Necesario para el delay al cerrar sesión
 import streamlit.components.v1 as components 
 
 # IMPORTACIONES
@@ -35,7 +36,6 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                 justify-content: center;
                 width: 100%;
                 height: 2.5rem;
-                /* CAMBIO DE COLOR AQUI: Azul Sistema */
                 background-color: #007BFF; 
                 color: white;
                 font-weight: 600;
@@ -49,7 +49,7 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                 transition: background-color 0.2s, box-shadow 0.2s;
             }}
             .btn-share:hover {{
-                background-color: #0056b3; /* Azul más oscuro al pasar mouse */
+                background-color: #0056b3;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }}
             .btn-share:active {{
@@ -90,7 +90,7 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     """
     components.html(html_code, height=45)
 
-# 2. Control de Acceso (El loader estará dentro de esta función)
+# 2. Control de Acceso
 is_authenticated, cookie_manager = verificar_login()
 
 if is_authenticated:
@@ -129,21 +129,31 @@ if is_authenticated:
             
         st.write("") 
         
+        # --- LÓGICA DE CIERRE DE SESIÓN CORREGIDA ---
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                try: cookie_manager.delete("gestor_flota_user")
-                except: pass
+                # 1. Mandamos borrar la cookie
+                try: 
+                    cookie_manager.delete("gestor_flota_user")
+                except: 
+                    pass
+                
+                # 2. Borramos la sesión de Python
                 st.session_state.autenticado = False
                 st.session_state.usuario_actual = None
                 keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
                 for k in keys_to_clear:
                     if k in st.session_state: del st.session_state[k]
+                
+                # 3. CRUCIAL: Esperamos a que el navegador procese el borrado antes de recargar
+                st.warning("Cerrando sesión, por favor espera...")
+                time.sleep(2) 
+                
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
     if 'datos_app' not in st.session_state:
-        # Aquí ya no usamos el spinner simple, el usuario ya vio el autobús al loguearse
         st.session_state.datos_app = cargar_datos_db(usuario_actual)
         if "rangos" not in st.session_state.datos_app:
             st.session_state.datos_app["rangos"] = [[1, 100]]
@@ -169,6 +179,9 @@ if is_authenticated:
     all_u = sorted(list(set(all_u)))
     LISTA_HORAS = obtener_lista_horas_puntuales()
 
+    # ==============================================================================
+    #                             VISTA: ASIGNACIÓN
+    # ==============================================================================
     if st.session_state.vista_actual == "Asignacion":
         st.title("⛽ Asignación de Unidades")
         
@@ -262,6 +275,7 @@ if is_authenticated:
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
             c_fot, c_wa, c_his = st.columns(3)
+            
             if c_fot.button("📸 FOTO", type="primary", use_container_width=True):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
             
@@ -269,7 +283,6 @@ if is_authenticated:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
                 bc1, bc2, bc3 = st.columns(3)
                 with bc1:
-                    # Botón Azul
                     accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
                 with bc2:
                     st.download_button("📥 Guardar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
@@ -289,10 +302,14 @@ if is_authenticated:
             msg_encoded = urllib.parse.quote(msg_wa)
             st.link_button("💬 Enviar Resumen Texto a WhatsApp", f"https://wa.me/?text={msg_encoded}")
 
+    # ==============================================================================
+    #                             VISTA: TALLER
+    # ==============================================================================
     elif st.session_state.vista_actual == "Taller":
         st.title("🔧 Taller de Mantenimiento")
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
+        
         with st.container(border=True):
             st.subheader("🔴 Reportar Avería")
             st.caption("Selecciona las unidades que entran al taller:")
@@ -304,6 +321,7 @@ if is_authenticated:
                     guardar()
                     st.toast(f"🛠️ {len(news)} unidades enviadas a taller")
                     st.rerun()
+        
         st.divider()
         if avs:
             with st.container(border=True):
@@ -319,6 +337,9 @@ if is_authenticated:
         else: 
             st.success("✅ Toda la flota está operativa.")
 
+    # ==============================================================================
+    #                             VISTA: CONFIGURACIÓN
+    # ==============================================================================
     elif st.session_state.vista_actual == "Configuracion":
         st.title("⚙️ Configuración del Sistema")
         if "k_width" not in st.session_state: st.session_state.k_width = d.get("img_width", 450)
