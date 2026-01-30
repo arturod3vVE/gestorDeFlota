@@ -15,11 +15,10 @@ if verificar_login():
     
     usuario_actual = st.session_state.usuario_actual
     
-    # Inicializamos la variable de navegación en Session State si no existe
+    # Inicializamos la variable de navegación
     if 'vista_actual' not in st.session_state:
-        st.session_state.vista_actual = "Asignacion" # Valor por defecto
+        st.session_state.vista_actual = "Asignacion"
 
-    # Función para cambiar de vista (Callback)
     def cambiar_vista(nueva_vista):
         st.session_state.vista_actual = nueva_vista
 
@@ -31,19 +30,13 @@ if verificar_login():
         st.divider()
         st.write("📍 **Navegación**")
         
-        # --- BOTONERA DE NAVEGACIÓN PERSONALIZADA ---
-        # Usamos columnas vacías para dar un pequeño espaciado vertical si fuera necesario, 
-        # pero aquí pondremos los botones directos que ocupan todo el ancho.
-        
-        # Botón 1: Asignación
+        # BOTONERA DE NAVEGACIÓN
         estilo_asig = "primary" if st.session_state.vista_actual == "Asignacion" else "secondary"
         st.button("⛽ Asignación", key="nav_asig", type=estilo_asig, use_container_width=True, on_click=cambiar_vista, args=("Asignacion",))
         
-        # Botón 2: Taller
         estilo_taller = "primary" if st.session_state.vista_actual == "Taller" else "secondary"
         st.button("🔧 Taller", key="nav_taller", type=estilo_taller, use_container_width=True, on_click=cambiar_vista, args=("Taller",))
         
-        # Botón 3: Configuración
         estilo_conf = "primary" if st.session_state.vista_actual == "Configuracion" else "secondary"
         st.button("⚙️ Configuración", key="nav_conf", type=estilo_conf, use_container_width=True, on_click=cambiar_vista, args=("Configuracion",))
         
@@ -91,7 +84,6 @@ if verificar_login():
 
     d = st.session_state.datos_app
     
-    # Construcción de la lista global de unidades
     all_u = []
     if "rangos" in d:
         for r in d["rangos"]:
@@ -168,24 +160,43 @@ if verificar_login():
                     c_t.markdown(f"#### {e['nombre']}")
                     c_t.caption(f"Horario: {e['horario'] if e['horario'] else 'Sin horario'}")
                     
+                    # --- MENÚ DE OPCIONES (AQUÍ FALTABA EL BOTÓN EDITAR) ---
                     with c_b.popover("Opciones", use_container_width=True):
+                        # Botón 1: Editar
+                        if st.button("✏️ Editar", key=f"ed_rep_{i}", use_container_width=True):
+                            st.session_state.ed_idx = i
+                            st.rerun()
+                        
+                        # Botón 2: Borrar
                         if st.button("🗑️ Borrar", key=f"del_rep_{i}", type="primary", use_container_width=True):
                              st.session_state.reporte_diario.pop(i); st.rerun()
                     
+                    # --- MODO EDICIÓN ---
                     if st.session_state.ed_idx == i:
                         st.info("✏️ Editando unidades...")
-                        to_rm = st.multiselect("Quitar:", e['unidades'], key=f"md{i}")
-                        if st.button("Quitar selección", key=f"brm{i}") and to_rm:
+                        
+                        # Quitar unidades
+                        to_rm = st.multiselect("Quitar unidades de esta estación:", e['unidades'], key=f"md{i}")
+                        if st.button("🗑️ Quitar seleccionadas", key=f"brm{i}") and to_rm:
                             for x in to_rm: e['unidades'].remove(x)
                             st.rerun()
                         
+                        st.markdown("---")
+                        
+                        # Agregar unidades
+                        st.write("**Agregar más unidades:**")
                         others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
                         cands = [u for u in op if u not in others and u not in e['unidades']]
+                        
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
-                        if st.button("Agregar selección", key=f"bad{i}") and to_add:
+                        if st.button("➕ Agregar seleccionadas", key=f"bad{i}") and to_add:
                             e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
-                        if st.button("✅ Finalizar Edición", key=f"ok{i}", use_container_width=True):
+                            
+                        st.markdown("---")
+                        if st.button("✅ Finalizar Edición", key=f"ok{i}", type="primary", use_container_width=True):
                             st.session_state.ed_idx = None; st.rerun()
+                            
+                    # --- MODO VISUALIZACIÓN ---
                     else:
                         st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
