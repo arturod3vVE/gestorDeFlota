@@ -1,6 +1,8 @@
 import streamlit as st
 from datetime import datetime
-import time # Importamos time para dar espera al borrar cookie
+import urllib.parse
+import base64 # Necesario para convertir la imagen a código para JS
+import streamlit.components.v1 as components # Para inyectar el código JS
 
 # IMPORTACIONES
 from database import cargar_datos_db, guardar_datos_db, guardar_historial_db, recuperar_historial_por_fecha
@@ -11,7 +13,79 @@ from utils import inyectar_css, verificar_login, selector_de_rangos, obtener_lis
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 inyectar_css()
 
-# 2. Control de Acceso (Ahora recibimos 2 valores)
+# --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO (COMO LOS BANCOS) ---
+def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
+    """
+    Inyecta un botón HTML/JS que usa la API nativa del celular para compartir archivos.
+    Esto permite enviar la imagen a WhatsApp directamente sin descargarla manualmente.
+    """
+    b64 = base64.b64encode(img_bytes.getvalue()).decode()
+    
+    html_code = f"""
+    <html>
+        <head>
+        <style>
+            .btn-share {{
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                padding: 0.5rem 1rem;
+                background-color: #25D366; /* Color WhatsApp */
+                color: white;
+                font-weight: 600;
+                border: none;
+                border-radius: 0.5rem;
+                cursor: pointer;
+                font-family: "Source Sans Pro", sans-serif;
+                text-decoration: none;
+                font-size: 1rem;
+                transition: background-color 0.2s;
+            }}
+            .btn-share:hover {{
+                background-color: #128C7E;
+            }}
+            .btn-share:active {{
+                transform: scale(0.98);
+            }}
+        </style>
+        </head>
+        <body>
+            <button class="btn-share" onclick="compartir()">
+                📲 Enviar Imagen a WhatsApp
+            </button>
+
+            <script>
+            async function compartir() {{
+                const b64 = "{b64}";
+                // Convertir Base64 a Blob (Archivo en memoria del navegador)
+                const res = await fetch("data:image/png;base64," + b64);
+                const blob = await res.blob();
+                const file = new File([blob], "{nombre_archivo}", {{ type: "image/png" }});
+
+                // Verificar si el navegador soporta compartir archivos (Casi todos los móviles lo hacen)
+                if (navigator.share && navigator.canShare({{ files: [file] }})) {{
+                    try {{
+                        await navigator.share({{
+                            files: [file],
+                            title: 'Reporte de Flota',
+                            text: 'Adjunto el reporte de asignación.'
+                        }});
+                    }} catch (err) {{
+                        console.log('Error o cancelación:', err);
+                    }}
+                }} else {{
+                    alert('Tu navegador no permite compartir archivos directos. Por favor usa el botón "Descargar Imagen" arriba.');
+                }}
+            }}
+            </script>
+        </body>
+    </html>
+    """
+    # Altura suficiente para que se vea el botón
+    components.html(html_code, height=50)
+
+# 2. Control de Acceso
 is_authenticated, cookie_manager = verificar_login()
 
 if is_authenticated:
@@ -54,24 +128,17 @@ if is_authenticated:
             
         st.write("") 
         
-        # CERRAR SESIÓN (CON BORRADO DE COOKIE)
+        # CERRAR SESIÓN
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                # 1. Borrar la cookie
-                try:
-                    cookie_manager.delete("gestor_flota_user")
-                except:
-                    pass
-                
-                # 2. Borrar sesión
+                try: cookie_manager.delete("gestor_flota_user")
+                except: pass
                 st.session_state.autenticado = False
                 st.session_state.usuario_actual = None
                 keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
                 for k in keys_to_clear:
                     if k in st.session_state: del st.session_state[k]
-                
-                # 3. Recargar
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
@@ -95,13 +162,11 @@ if is_authenticated:
         return guardar_datos_db(st.session_state.datos_app, usuario_actual)
 
     d = st.session_state.datos_app
-    
     all_u = []
     if "rangos" in d:
         for r in d["rangos"]:
             all_u.extend(list(range(r[0], r[1] + 1)))
     all_u = sorted(list(set(all_u)))
-    
     LISTA_HORAS = obtener_lista_horas_puntuales()
 
     # ==============================================================================
@@ -176,7 +241,6 @@ if is_authenticated:
                         if st.button("✏️ Editar", key=f"ed_rep_{i}", use_container_width=True):
                             st.session_state.ed_idx = i
                             st.rerun()
-                            
                         if st.button("🗑️ Borrar", key=f"del_rep_{i}", type="primary", use_container_width=True):
                              st.session_state.reporte_diario.pop(i); st.rerun()
                     
@@ -198,19 +262,49 @@ if is_authenticated:
                         st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
             st.divider()
-            st.subheader("📤 Exportar")
+            st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            c_fot, c_his = st.columns(2)
-            if c_fot.button("📸 GENERAR FOTO", type="primary", use_container_width=True):
-                st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
+            # --- ZONA DE ACCIONES DE EXPORTACIÓN ---
             
-            if c_his.button("💾 Guardar en Historial", use_container_width=True):
-                if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): st.success("Guardado en Historial OK")
+            # 1. Generar la imagen en memoria (si no existe o si cambia algo)
+            # Para optimizar, lo generamos al vuelo antes de mostrar los botones si no está
+            if 'img_mem' not in st.session_state or st.button("🔄 Regenerar Imagen Previa"):
+                st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
 
+            # Mostrar vista previa
             if 'img_mem' in st.session_state:
-                st.image(st.session_state.img_mem, caption="Vista Previa Generada", use_column_width=True)
-                st.download_button("📥 Descargar Imagen", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
+                st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
+                
+                # Columnas para los botones
+                col_w, col_d, col_h = st.columns(3)
+                
+                # BOTÓN 1: COMPARTIR WHATSAPP (NATIVO - IMAGEN)
+                with col_w:
+                    # Invocamos la función JS
+                    accion_compartir_nativa(st.session_state.img_mem, "Reporte_Flota.png")
+                
+                # BOTÓN 2: DESCARGAR (CLÁSICO)
+                with col_d:
+                    st.download_button("📥 Guardar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
+                
+                # BOTÓN 3: HISTORIAL
+                with col_h:
+                    if st.button("💾 Historial", use_container_width=True):
+                        if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
+                            st.success("OK")
+
+            # Link de texto (Backup)
+            st.caption("Opción alternativa (Solo texto):")
+            msg_wa = f"*REPORTE DE FLOTA - {fr.strftime('%d/%m/%Y')}*\n_{usuario_actual.upper()}_\n\n"
+            for item in st.session_state.reporte_diario:
+                msg_wa += f"⛽ *{item['nombre'].upper()}*\n"
+                if item['horario']: msg_wa += f"🕒 {item['horario']}\n"
+                unidades_str = ", ".join([str(u) for u in item['unidades']])
+                msg_wa += f"🚛 {unidades_str}\n\n"
+            if txt_r: msg_wa += f"ℹ️ _{txt_r}_"
+            msg_encoded = urllib.parse.quote(msg_wa)
+            st.link_button("💬 Enviar Resumen Texto a WhatsApp", f"https://wa.me/?text={msg_encoded}")
 
     # ==============================================================================
     #                             VISTA: TALLER
