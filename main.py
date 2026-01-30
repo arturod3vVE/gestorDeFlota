@@ -16,7 +16,7 @@ inyectar_css()
 # --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO ---
 def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     """
-    Botón verde 'Compartir' ajustado visualmente para parecerse a los nativos de Streamlit.
+    Botón 'Compartir' con color AZUL para diferenciarlo.
     """
     b64 = base64.b64encode(img_bytes.getvalue()).decode()
     
@@ -34,8 +34,9 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                 align-items: center;
                 justify-content: center;
                 width: 100%;
-                height: 2.5rem; /* Altura estándar de botones Streamlit (~40px) */
-                background-color: #25D366;
+                height: 2.5rem;
+                /* CAMBIO DE COLOR AQUI: Azul Sistema */
+                background-color: #007BFF; 
                 color: white;
                 font-weight: 600;
                 border: 1px solid rgba(0,0,0,0.1);
@@ -44,16 +45,16 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                 font-family: "Source Sans Pro", sans-serif;
                 font-size: 1rem;
                 text-decoration: none;
-                box-sizing: border-box; /* Asegura que el padding no aumente el tamaño */
+                box-sizing: border-box;
                 transition: background-color 0.2s, box-shadow 0.2s;
             }}
             .btn-share:hover {{
-                background-color: #128C7E;
+                background-color: #0056b3; /* Azul más oscuro al pasar mouse */
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }}
             .btn-share:active {{
                 transform: scale(0.99);
-                background-color: #075E54;
+                background-color: #004494;
             }}
         </style>
         </head>
@@ -87,24 +88,21 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
         </body>
     </html>
     """
-    # Ajustamos height=45 para que no sobre espacio vertical y quede alineado
     components.html(html_code, height=45)
 
-# 2. Control de Acceso
+# 2. Control de Acceso (El loader estará dentro de esta función)
 is_authenticated, cookie_manager = verificar_login()
 
 if is_authenticated:
     
     usuario_actual = st.session_state.usuario_actual
     
-    # Inicializamos la variable de navegación
     if 'vista_actual' not in st.session_state:
         st.session_state.vista_actual = "Asignacion"
 
     def cambiar_vista(nueva_vista):
         st.session_state.vista_actual = nueva_vista
 
-    # --- MENÚ LATERAL (SIDEBAR) ---
     with st.sidebar:
         st.header("Panel de Control")
         st.info(f"👤 **{usuario_actual.capitalize()}**")
@@ -145,15 +143,15 @@ if is_authenticated:
     
     # --- LÓGICA DE DATOS ---
     if 'datos_app' not in st.session_state:
-        with st.spinner(f"Cargando sistema..."):
-            st.session_state.datos_app = cargar_datos_db(usuario_actual)
-            if "rangos" not in st.session_state.datos_app:
-                st.session_state.datos_app["rangos"] = [[1, 100]]
-            est_raw = st.session_state.datos_app.get("estaciones", [])
-            if isinstance(est_raw, str):
-                st.session_state.datos_app["estaciones"] = [e.strip() for e in est_raw.split(';;') if e.strip()]
-            elif not isinstance(est_raw, list):
-                st.session_state.datos_app["estaciones"] = []
+        # Aquí ya no usamos el spinner simple, el usuario ya vio el autobús al loguearse
+        st.session_state.datos_app = cargar_datos_db(usuario_actual)
+        if "rangos" not in st.session_state.datos_app:
+            st.session_state.datos_app["rangos"] = [[1, 100]]
+        est_raw = st.session_state.datos_app.get("estaciones", [])
+        if isinstance(est_raw, str):
+            st.session_state.datos_app["estaciones"] = [e.strip() for e in est_raw.split(';;') if e.strip()]
+        elif not isinstance(est_raw, list):
+            st.session_state.datos_app["estaciones"] = []
 
     if 'reporte_diario' not in st.session_state:
         hoy = datetime.now()
@@ -171,9 +169,6 @@ if is_authenticated:
     all_u = sorted(list(set(all_u)))
     LISTA_HORAS = obtener_lista_horas_puntuales()
 
-    # ==============================================================================
-    #                             VISTA: ASIGNACIÓN
-    # ==============================================================================
     if st.session_state.vista_actual == "Asignacion":
         st.title("⛽ Asignación de Unidades")
         
@@ -267,30 +262,22 @@ if is_authenticated:
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
             c_fot, c_wa, c_his = st.columns(3)
-            
             if c_fot.button("📸 FOTO", type="primary", use_container_width=True):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
             
-            # --- ZONA DE VISTA PREVIA Y BOTONES ---
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
-                
-                # Columnas para los botones finales (Ahora alineados)
                 bc1, bc2, bc3 = st.columns(3)
-                
                 with bc1:
-                    # Botón verde ajustado
+                    # Botón Azul
                     accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
-                
                 with bc2:
                     st.download_button("📥 Guardar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
-                
                 with bc3:
                     if st.button("💾 Historial", use_container_width=True):
                         if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
                             st.success("OK")
 
-            # Texto Backup
             st.caption("Opción alternativa (Solo texto):")
             msg_wa = f"*REPORTE DE FLOTA - {fr.strftime('%d/%m/%Y')}*\n_{usuario_actual.upper()}_\n\n"
             for item in st.session_state.reporte_diario:
@@ -302,15 +289,10 @@ if is_authenticated:
             msg_encoded = urllib.parse.quote(msg_wa)
             st.link_button("💬 Enviar Resumen Texto a WhatsApp", f"https://wa.me/?text={msg_encoded}")
 
-    # ==============================================================================
-    #                             VISTA: TALLER
-    # ==============================================================================
     elif st.session_state.vista_actual == "Taller":
         st.title("🔧 Taller de Mantenimiento")
-        
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
-        
         with st.container(border=True):
             st.subheader("🔴 Reportar Avería")
             st.caption("Selecciona las unidades que entran al taller:")
@@ -322,9 +304,7 @@ if is_authenticated:
                     guardar()
                     st.toast(f"🛠️ {len(news)} unidades enviadas a taller")
                     st.rerun()
-        
         st.divider()
-        
         if avs:
             with st.container(border=True):
                 st.subheader("🟢 Reparaciones (Salida)")
@@ -339,21 +319,16 @@ if is_authenticated:
         else: 
             st.success("✅ Toda la flota está operativa.")
 
-    # ==============================================================================
-    #                             VISTA: CONFIGURACIÓN
-    # ==============================================================================
     elif st.session_state.vista_actual == "Configuracion":
         st.title("⚙️ Configuración del Sistema")
-        
         if "k_width" not in st.session_state: st.session_state.k_width = d.get("img_width", 450)
         if "k_font" not in st.session_state: st.session_state.k_font = d.get("font_size", 24)
         if "k_bg" not in st.session_state: st.session_state.k_bg = d.get("bg_color", "#ECE5DD")
         if "k_text" not in st.session_state: st.session_state.k_text = d.get("text_color", "#000000")
-        
         db_colors = d.get("st_colors", ["#f8d7da"]*6)
         for i in range(6):
             if f"k_c_{i}" not in st.session_state: st.session_state[f"k_c_{i}"] = db_colors[i]
-
+        
         def revertir_cambios():
             st.session_state.k_width = d.get("img_width", 450)
             st.session_state.k_font = d.get("font_size", 24)
@@ -365,7 +340,7 @@ if is_authenticated:
 
         mostrar_preview = st.toggle("👁️ Mostrar Vista Previa en tiempo real", value=False)
         st.markdown("---")
-
+        
         if mostrar_preview:
             col_config, col_preview = st.columns([1.5, 1])
         else:
@@ -375,26 +350,21 @@ if is_authenticated:
         with col_config:
             with st.expander("📍 1. Rangos de Flota", expanded=True):
                 rangos_actuales = d.get("rangos", [])
-                
                 if rangos_actuales:
                     st.caption("Rangos activos:")
                     for i, r in enumerate(rangos_actuales):
                         c_info, c_action = st.columns([5, 1], vertical_alignment="center")
                         c_info.code(f"{r[0]} ➝ {r[1]}")
-                        
                         with c_action.popover("🗑️"):
                             st.write("¿Eliminar?")
                             if st.button("Sí", key=f"del_r_{i}", type="primary", use_container_width=True):
                                 d["rangos"].pop(i); guardar(); st.rerun()
-                else:
-                    st.info("No hay rangos definidos.")
-
+                else: st.info("No hay rangos definidos.")
                 st.divider()
                 st.caption("➕ Crear nuevo rango:")
                 c_n1, c_n2, c_btn = st.columns([2, 2, 2], vertical_alignment="bottom")
                 n_min = c_n1.number_input("Desde", min_value=1, value=1)
                 n_max = c_n2.number_input("Hasta", min_value=1, value=100)
-                
                 if c_btn.button("Agregar", type="primary", use_container_width=True):
                     if n_max < n_min: st.error("Error: Final < Inicio.")
                     else:
@@ -409,19 +379,16 @@ if is_authenticated:
                 c3, c4 = st.columns(2)
                 ni = c3.slider("Ancho Imagen", 300, 800, key="k_width")
                 nf = c4.slider("Tamaño Fuente", 14, 40, key="k_font")
-                
                 st.write("**Colores:**")
                 cc1, cc2 = st.columns(2)
                 nuevo_bg = cc1.color_picker("Fondo Imagen", key="k_bg")
                 nuevo_text = cc2.color_picker("Color Texto", key="k_text")
-                
                 st.write("**Colores de Estaciones:**")
                 nuevos_st_colors = []
                 f1 = st.columns(3)
                 for i in range(3): nuevos_st_colors.append(f1[i].color_picker(f"C{i+1}", key=f"k_c_{i}"))
                 f2 = st.columns(3)
                 for i in range(3, 6): nuevos_st_colors.append(f2[i-3].color_picker(f"C{i+4}", key=f"k_c_{i}"))
-
                 st.divider()
                 b_save, b_cancel = st.columns([1, 1])
                 with b_save:
@@ -435,7 +402,6 @@ if is_authenticated:
 
             with st.expander("⛽ 3. Gestión de Estaciones", expanded=False):
                 c_add, c_del = st.columns(2, gap="large")
-                
                 with c_add:
                     st.write("**:green[➕] Nueva Estación**")
                     nueva_st_input = st.text_input("Nombre:", placeholder="Ej: Texaco Norte", key="in_st")
@@ -448,7 +414,6 @@ if is_authenticated:
                                 if guardar(): st.toast(f"✅ Agregada: {nueva}"); st.rerun()
                                 else: st.toast("❌ Error DB")
                             else: st.toast("⚠️ Ya existe.")
-
                 with c_del:
                     st.write("**:red[🗑️] Eliminar Estaciones**")
                     ests = d.get("estaciones", [])
@@ -460,8 +425,7 @@ if is_authenticated:
                                 for x in rem: 
                                     if x in d["estaciones"]: d["estaciones"].remove(x)
                                 if guardar(): st.toast("🗑️ Eliminadas"); st.rerun()
-                    else:
-                        st.info("Lista vacía.")
+                    else: st.info("Lista vacía.")
 
         if col_preview:
             with col_preview:
@@ -472,7 +436,6 @@ if is_authenticated:
                     if d.get("rangos"):
                         r1 = d["rangos"][0]
                         u_demo = list(range(r1[0], min(r1[0]+5, r1[1]+1)))
-
                     datos_demo = [
                         {"nombre": "Estación Demo", "horario": "8 AM - 1 PM", "unidades": u_demo},
                         {"nombre": "Estación B", "horario": "2 PM - 6 PM", "unidades": []}
@@ -480,7 +443,6 @@ if is_authenticated:
                     cfg_temp = d.copy(); cfg_temp["img_width"] = ni; cfg_temp["font_size"] = nf
                     cfg_temp["bg_color"] = nuevo_bg; cfg_temp["st_colors"] = nuevos_st_colors
                     cfg_temp["text_color"] = nuevo_text
-                    
                     try:
                         img_prev = generar_imagen_en_memoria(datos_demo, datetime.now(), f"Flota: {r_txt}", cfg_temp)
                         st.image(img_prev, width=350)
