@@ -17,7 +17,7 @@ inyectar_css()
 # --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO ---
 def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     """
-    Botón 'Compartir' con color AZUL para diferenciarlo.
+    Genera el botón JS para compartir.
     """
     b64 = base64.b64encode(img_bytes.getvalue()).decode()
     
@@ -25,51 +25,35 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
     <html>
         <head>
         <style>
-            body {{
-                margin: 0;
-                padding: 0;
-                background-color: transparent;
-            }}
+            body {{ margin: 0; padding: 0; background-color: transparent; }}
             .btn-share {{
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 100%;
-                height: 2.5rem;
-                background-color: #007BFF; 
-                color: white;
-                font-weight: 600;
-                border: 1px solid rgba(0,0,0,0.1);
-                border-radius: 0.5rem;
-                cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                width: 100%; height: 2.5rem;
+                background-color: #007BFF; color: white;
+                font-weight: 600; border: 1px solid rgba(0,0,0,0.1);
+                border-radius: 0.5rem; cursor: pointer;
                 font-family: "Source Sans Pro", sans-serif;
-                font-size: 1rem;
-                text-decoration: none;
+                font-size: 1rem; text-decoration: none;
                 box-sizing: border-box;
-                transition: background-color 0.2s, box-shadow 0.2s;
+                animation: popIn 0.3s ease-out;
             }}
-            .btn-share:hover {{
-                background-color: #0056b3;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }}
-            .btn-share:active {{
-                transform: scale(0.99);
-                background-color: #004494;
+            .btn-share:hover {{ background-color: #0056b3; }}
+            @keyframes popIn {{
+                0% {{ transform: scale(0.9); opacity: 0; }}
+                100% {{ transform: scale(1); opacity: 1; }}
             }}
         </style>
         </head>
         <body>
             <button class="btn-share" onclick="compartir()">
-                📲 Compartir
+                🚀 Abrir WhatsApp / Compartir
             </button>
-
             <script>
             async function compartir() {{
                 const b64 = "{b64}";
                 const res = await fetch("data:image/png;base64," + b64);
                 const blob = await res.blob();
                 const file = new File([blob], "{nombre_archivo}", {{ type: "image/png" }});
-
                 if (navigator.share && navigator.canShare({{ files: [file] }})) {{
                     try {{
                         await navigator.share({{
@@ -77,11 +61,9 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                             title: 'Reporte de Flota',
                             text: 'Reporte de asignación.'
                         }});
-                    }} catch (err) {{
-                        console.log('Cancelado/Error:', err);
-                    }}
+                    }} catch (err) {{ console.log(err); }}
                 }} else {{
-                    alert('Tu navegador no soporta compartir imágenes directo. Usa el botón "Descargar".');
+                    alert('Tu navegador no soporta compartir imágenes directo.');
                 }}
             }}
             </script>
@@ -204,8 +186,6 @@ if is_authenticated:
             ocup = [r['nombre'] for r in st.session_state.reporte_diario]
             dis = [e for e in test if e not in ocup]
             
-            # --- DISEÑO MEJORADO: ALINEACIÓN PERFECTA ---
-            # Usamos 4 columnas con alineación inferior para que todo cuadre
             c_st, c_tg, c_h1, c_h2 = st.columns([3, 1, 1.2, 1.2], vertical_alignment="bottom")
             
             with c_st:
@@ -214,27 +194,19 @@ if is_authenticated:
                 else: 
                     st.warning("Sin estaciones.")
                     nom = None
-            
             with c_tg:
-                # Usamos Toggle en vez de Checkbox, es más moderno
-                # La etiqueta vacía " " es para darle altura y que se alinee con los inputs
                 sin_h = st.toggle("Sin horario", value=False)
-                
-            # Definimos las horas (Deshabilitadas si se activa 'Sin horario')
             with c_h1:
                 h1 = st.selectbox("Abre", LISTA_HORAS, index=LISTA_HORAS.index("09 AM") if "09 AM" in LISTA_HORAS else 0, disabled=sin_h)
-            
             with c_h2:
                 h2 = st.selectbox("Cierra", LISTA_HORAS, index=LISTA_HORAS.index("02 PM") if "02 PM" in LISTA_HORAS else 0, disabled=sin_h)
 
-            # Construimos el string de horario
             h_str = "" if sin_h else f"{h1} a {h2}"
             
             st.markdown("---")
             st.write("**Seleccionar Unidades:**")
             sel = selector_de_rangos(disp, "main_asig", default_str=None)
             
-            # Botón con ancho completo para cerrar el bloque visualmente
             if st.button("💾 Guardar Asignación", type="primary", use_container_width=True):
                 if nom and sel: 
                     st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sorted(sel)})
@@ -272,40 +244,51 @@ if is_authenticated:
                         if st.button("✅ Finalizar Edición", key=f"ok{i}", use_container_width=True):
                             st.session_state.ed_idx = None; st.rerun()
                     else:
-                        # --- CAMBIO AQUÍ: MARGEN INFERIOR AÑADIDO (margin-bottom:10px) ---
                         st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;margin-bottom:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
             st.divider()
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            c_fot, c_wa, c_his = st.columns(3)
-            
-            if c_fot.button("📸 FOTO", type="primary", use_container_width=True):
+            # Generamos la foto automáticamente si se necesita
+            if 'img_mem' not in st.session_state or st.button("🔄 Generar Imagen"):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
             
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
-                bc1, bc2, bc3 = st.columns(3)
-                with bc1:
-                    accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
-                with bc2:
-                    st.download_button("📥 Guardar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
-                with bc3:
-                    if st.button("💾 Historial", use_container_width=True):
+                
+                # --- BOTONERA FINAL ---
+                c1, c2 = st.columns(2)
+                
+                # BOTÓN 1: SOLO GUARDAR
+                with c1:
+                    if st.button("💾 Guardar", type="primary", use_container_width=True):
                         if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
-                            st.success("OK")
+                            st.success("✅ Guardado en base de datos")
+                
+                # BOTÓN 2: COMPARTIR + GUARDAR AUTOMÁTICO
+                with c2:
+                    # Usamos un botón de Streamlit para disparar el guardado primero
+                    if st.button("📲 Compartir", use_container_width=True):
+                        # 1. Guardamos silenciosamente
+                        guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual)
+                        st.toast("✅ Guardado automático")
+                        
+                        # 2. Mostramos el botón JS para abrir WhatsApp
+                        # (Este botón aparece tras hacer click en Compartir)
+                        accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
 
-            st.caption("Opción alternativa (Solo texto):")
-            msg_wa = f"*REPORTE DE FLOTA - {fr.strftime('%d/%m/%Y')}*\n_{usuario_actual.upper()}_\n\n"
-            for item in st.session_state.reporte_diario:
-                msg_wa += f"⛽ *{item['nombre'].upper()}*\n"
-                if item['horario']: msg_wa += f"🕒 {item['horario']}\n"
-                unidades_str = ", ".join([str(u) for u in item['unidades']])
-                msg_wa += f"🚛 {unidades_str}\n\n"
-            if txt_r: msg_wa += f"ℹ️ _{txt_r}_"
-            msg_encoded = urllib.parse.quote(msg_wa)
-            st.link_button("💬 Enviar Resumen Texto a WhatsApp", f"https://wa.me/?text={msg_encoded}")
+            st.markdown("---")
+            with st.expander("Opciones de Texto"):
+                msg_wa = f"*REPORTE DE FLOTA - {fr.strftime('%d/%m/%Y')}*\n_{usuario_actual.upper()}_\n\n"
+                for item in st.session_state.reporte_diario:
+                    msg_wa += f"⛽ *{item['nombre'].upper()}*\n"
+                    if item['horario']: msg_wa += f"🕒 {item['horario']}\n"
+                    unidades_str = ", ".join([str(u) for u in item['unidades']])
+                    msg_wa += f"🚛 {unidades_str}\n\n"
+                if txt_r: msg_wa += f"ℹ️ _{txt_r}_"
+                msg_encoded = urllib.parse.quote(msg_wa)
+                st.link_button("💬 Enviar Resumen Texto", f"https://wa.me/?text={msg_encoded}")
 
     # ==============================================================================
     #                             VISTA: TALLER
