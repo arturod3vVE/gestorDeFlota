@@ -27,10 +27,9 @@ def asegurar_pestana(sh, nombre):
     try:
         return sh.worksheet(nombre)
     except:
-        # Si no existe, la crea
         return sh.add_worksheet(nombre, 100, 20)
 
-# --- USUARIOS (ESTA PESTAÑA ES COMPARTIDA) ---
+# --- USUARIOS ---
 def validar_usuario_db(usuario, password):
     sh = conectar_google_sheets()
     if not sh: return False
@@ -77,12 +76,12 @@ def restablecer_con_totp(usuario, codigo_input, nueva_password):
         return False, "Usuario no encontrado."
     except: return False, "Error inesperado."
 
-# --- CONFIGURACIÓN POR USUARIO (AQUÍ ESTÁ EL CAMBIO) ---
+# --- CONFIGURACIÓN ---
 def cargar_datos_db(usuario):
     sh = conectar_google_sheets()
     if not sh: return {}
     
-    # Datos por defecto
+    # Datos por defecto (AQUÍ AÑADIMOS EL COLOR DE TEXTO)
     datos = {
         "rangos": [[1, 500]],
         "averiadas": [],
@@ -90,11 +89,11 @@ def cargar_datos_db(usuario):
         "font_size": 24,
         "img_width": 450,
         "bg_color": "#ECE5DD",
+        "text_color": "#000000", # Nuevo valor por defecto (Negro)
         "st_colors": ["#f8d7da"]*6
     }
     
     try:
-        # CAMBIO: Buscamos la pestaña ÚNICA del usuario
         nombre_pestana = f"Config_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
@@ -132,6 +131,7 @@ def cargar_datos_db(usuario):
         if "FontSize" in config_dict: datos["font_size"] = int(config_dict["FontSize"])
         if "ImgWidth" in config_dict: datos["img_width"] = int(config_dict["ImgWidth"])
         if "BgColor" in config_dict: datos["bg_color"] = config_dict["BgColor"]
+        if "TextColor" in config_dict: datos["text_color"] = config_dict["TextColor"] # LEER COLOR TEXTO
         if "StColors" in config_dict:
             try: datos["st_colors"] = json.loads(config_dict["StColors"])
             except: pass
@@ -146,7 +146,6 @@ def guardar_datos_db(datos, usuario):
     if not sh: return False
     
     try:
-        # CAMBIO: Guardamos en la pestaña ÚNICA del usuario
         nombre_pestana = f"Config_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
@@ -162,6 +161,7 @@ def guardar_datos_db(datos, usuario):
             ["FontSize", datos.get("font_size", 24)],
             ["ImgWidth", datos.get("img_width", 450)],
             ["BgColor", datos.get("bg_color", "#ECE5DD")],
+            ["TextColor", datos.get("text_color", "#000000")], # GUARDAR COLOR TEXTO
             ["StColors", json_colors]
         ]
         
@@ -172,12 +172,11 @@ def guardar_datos_db(datos, usuario):
         st.error(f"Error guardando: {e}")
         return False
 
-# --- HISTORIAL POR USUARIO ---
+# --- HISTORIAL ---
 def guardar_historial_db(fecha, reporte, usuario):
     sh = conectar_google_sheets()
     if not sh: return False
     try:
-        # CAMBIO: Historial único por usuario
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
@@ -194,7 +193,6 @@ def recuperar_historial_por_fecha(fecha, usuario):
     sh = conectar_google_sheets()
     if not sh: return []
     try:
-        # CAMBIO: Leemos del historial del usuario
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         

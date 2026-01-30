@@ -15,34 +15,66 @@ if verificar_login():
     
     usuario_actual = st.session_state.usuario_actual
     
+    # Inicializamos la variable de navegación en Session State si no existe
+    if 'vista_actual' not in st.session_state:
+        st.session_state.vista_actual = "Asignacion" # Valor por defecto
+
+    # Función para cambiar de vista (Callback)
+    def cambiar_vista(nueva_vista):
+        st.session_state.vista_actual = nueva_vista
+
+    # --- MENÚ LATERAL (SIDEBAR) ---
     with st.sidebar:
         st.header("Panel de Control")
-        st.success(f"👤 Hola, **{usuario_actual.capitalize()}**")
+        st.info(f"👤 **{usuario_actual.capitalize()}**")
+        
+        st.divider()
+        st.write("📍 **Navegación**")
+        
+        # --- BOTONERA DE NAVEGACIÓN PERSONALIZADA ---
+        # Usamos columnas vacías para dar un pequeño espaciado vertical si fuera necesario, 
+        # pero aquí pondremos los botones directos que ocupan todo el ancho.
+        
+        # Botón 1: Asignación
+        estilo_asig = "primary" if st.session_state.vista_actual == "Asignacion" else "secondary"
+        st.button("⛽ Asignación", key="nav_asig", type=estilo_asig, use_container_width=True, on_click=cambiar_vista, args=("Asignacion",))
+        
+        # Botón 2: Taller
+        estilo_taller = "primary" if st.session_state.vista_actual == "Taller" else "secondary"
+        st.button("🔧 Taller", key="nav_taller", type=estilo_taller, use_container_width=True, on_click=cambiar_vista, args=("Taller",))
+        
+        # Botón 3: Configuración
+        estilo_conf = "primary" if st.session_state.vista_actual == "Configuracion" else "secondary"
+        st.button("⚙️ Configuración", key="nav_conf", type=estilo_conf, use_container_width=True, on_click=cambiar_vista, args=("Configuracion",))
+        
         st.divider()
         
-        if st.button("🔄 Actualizar Datos (DB)", width='stretch', help="Pulsa si editaste el Excel manualmente"):
+        # BOTONES DE ACCIÓN
+        if st.button("🔄 Recargar Datos", use_container_width=True, help="Fuerza la recarga desde la base de datos"):
             if 'datos_app' in st.session_state: del st.session_state['datos_app']
             if 'reporte_diario' in st.session_state: del st.session_state['reporte_diario']
-            st.toast("Datos recargados.")
+            st.toast("☁️ Datos actualizados")
             st.rerun()
             
-        st.divider()
-        if st.button("🚪 Cerrar Sesión", type="secondary", width='stretch'):
-            st.session_state.autenticado = False
-            st.session_state.usuario_actual = None
-            keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "new_min", "new_max", "input_new_st"] + [f"k_c_{i}" for i in range(6)]
-            for k in keys_to_clear:
-                if k in st.session_state: del st.session_state[k]
-            st.rerun()
+        st.write("") 
+        
+        # CERRAR SESIÓN
+        with st.popover("🚪 Cerrar Sesión", use_container_width=True):
+            st.markdown("¿Salir del sistema?")
+            if st.button("✅ Confirmar", type="primary", use_container_width=True):
+                st.session_state.autenticado = False
+                st.session_state.usuario_actual = None
+                keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
+                for k in keys_to_clear:
+                    if k in st.session_state: del st.session_state[k]
+                st.rerun()
     
-    # Carga de Datos
+    # --- LÓGICA DE DATOS ---
     if 'datos_app' not in st.session_state:
-        with st.spinner(f"Sincronizando con la nube de {usuario_actual}..."):
+        with st.spinner(f"Cargando sistema..."):
             st.session_state.datos_app = cargar_datos_db(usuario_actual)
-            
             if "rangos" not in st.session_state.datos_app:
                 st.session_state.datos_app["rangos"] = [[1, 100]]
-            
             est_raw = st.session_state.datos_app.get("estaciones", [])
             if isinstance(est_raw, str):
                 st.session_state.datos_app["estaciones"] = [e.strip() for e in est_raw.split(';;') if e.strip()]
@@ -57,10 +89,9 @@ if verificar_login():
     def guardar(): 
         return guardar_datos_db(st.session_state.datos_app, usuario_actual)
 
-    tab_asig, tab_taller, tab_conf = st.tabs(["⛽ Asignación", "🔧 Taller", "⚙️ Configuración"])
     d = st.session_state.datos_app
     
-    # --- CONSTRUCCIÓN DE LA LISTA DE UNIDADES ---
+    # Construcción de la lista global de unidades
     all_u = []
     if "rangos" in d:
         for r in d["rangos"]:
@@ -69,12 +100,159 @@ if verificar_login():
     
     LISTA_HORAS = obtener_lista_horas_puntuales()
 
-    # ---------------- PESTAÑA CONFIGURACIÓN ----------------
-    with tab_conf:
-        # Variables visuales
+    # ==============================================================================
+    #                             VISTA: ASIGNACIÓN
+    # ==============================================================================
+    if st.session_state.vista_actual == "Asignacion":
+        st.title("⛽ Asignación de Unidades")
+        
+        if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
+        
+        def ch_date():
+            dt = recuperar_historial_por_fecha(st.session_state.key_fecha_rep, usuario_actual)
+            st.session_state.reporte_diario = dt if dt else []
+            if dt: st.toast(f"📅 Registros cargados: {len(dt)}")
+
+        c1, c2 = st.columns([1, 2], vertical_alignment="center")
+        fr = c1.date_input("Fecha del Reporte", datetime.now(), key="key_fecha_rep", on_change=ch_date)
+        c2.info(f"Visualizando: **{fr.strftime('%d/%m/%Y')}**")
+        st.divider()
+        
+        avs = d.get("averiadas", [])
+        op = [u for u in all_u if u not in avs]
+        ya = [u for e in st.session_state.reporte_diario for u in e['unidades']]
+        disp = [u for u in op if u not in ya]
+
+        with st.container(border=True):
+            m1,m2,m3 = st.columns(3)
+            m1.metric("Total Flota", len(all_u))
+            m2.metric("En Taller", len(avs), delta_color="inverse")
+            m3.metric("Disponibles", len(disp))
+
+        with st.expander("➕ Nueva Asignación", expanded=True):
+            test = d.get("estaciones", [])
+            ocup = [r['nombre'] for r in st.session_state.reporte_diario]
+            dis = [e for e in test if e not in ocup]
+            
+            c_sel_st, c_sel_h = st.columns([1, 1])
+            with c_sel_st:
+                if dis: nom = st.selectbox("Estación", dis)
+                else: st.warning("No hay estaciones disponibles."); nom = None
+            
+            with c_sel_h:
+                sh = st.checkbox("Sin horario")
+                h_str = ""
+                if not sh:
+                    col_h1, col_h2 = st.columns(2)
+                    h1 = col_h1.selectbox("Abre", LISTA_HORAS, 9)
+                    h2 = col_h2.selectbox("Cierra", LISTA_HORAS, 14)
+                    h_str = f"{h1} a {h2}"
+            
+            st.markdown("---")
+            st.write("**Seleccionar Unidades:**")
+            sel = selector_de_rangos(disp, "main_asig", default_str=None)
+            
+            if st.button("💾 Guardar Asignación", type="primary", use_container_width=True):
+                if nom and sel: 
+                    st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sorted(sel)})
+                    st.rerun()
+                elif not nom: st.error("Selecciona una estación")
+                elif not sel: st.error("Selecciona al menos una unidad")
+
+        if st.session_state.reporte_diario:
+            st.divider()
+            st.subheader("📋 Resumen del Reporte")
+            for i, e in enumerate(st.session_state.reporte_diario):
+                with st.container(border=True):
+                    c_t, c_b = st.columns([0.8, 0.2], vertical_alignment="center")
+                    c_t.markdown(f"#### {e['nombre']}")
+                    c_t.caption(f"Horario: {e['horario'] if e['horario'] else 'Sin horario'}")
+                    
+                    with c_b.popover("Opciones", use_container_width=True):
+                        if st.button("🗑️ Borrar", key=f"del_rep_{i}", type="primary", use_container_width=True):
+                             st.session_state.reporte_diario.pop(i); st.rerun()
+                    
+                    if st.session_state.ed_idx == i:
+                        st.info("✏️ Editando unidades...")
+                        to_rm = st.multiselect("Quitar:", e['unidades'], key=f"md{i}")
+                        if st.button("Quitar selección", key=f"brm{i}") and to_rm:
+                            for x in to_rm: e['unidades'].remove(x)
+                            st.rerun()
+                        
+                        others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
+                        cands = [u for u in op if u not in others and u not in e['unidades']]
+                        to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
+                        if st.button("Agregar selección", key=f"bad{i}") and to_add:
+                            e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
+                        if st.button("✅ Finalizar Edición", key=f"ok{i}", use_container_width=True):
+                            st.session_state.ed_idx = None; st.rerun()
+                    else:
+                        st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
+            
+            st.divider()
+            st.subheader("📤 Exportar")
+            txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
+            
+            c_fot, c_his = st.columns(2)
+            if c_fot.button("📸 GENERAR FOTO", type="primary", use_container_width=True):
+                st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
+            
+            if c_his.button("💾 Guardar en Historial", use_container_width=True):
+                if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): st.success("Guardado en Historial OK")
+
+            if 'img_mem' in st.session_state:
+                st.image(st.session_state.img_mem, caption="Vista Previa Generada", use_column_width=True)
+                st.download_button("📥 Descargar Imagen", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
+
+    # ==============================================================================
+    #                             VISTA: TALLER
+    # ==============================================================================
+    elif st.session_state.vista_actual == "Taller":
+        st.title("🔧 Taller de Mantenimiento")
+        
+        avs = d.get("averiadas", [])
+        sanas = [u for u in all_u if u not in avs]
+        
+        with st.container(border=True):
+            st.subheader("🔴 Reportar Avería")
+            st.caption("Selecciona las unidades que entran al taller:")
+            news = selector_de_rangos(sanas, "taller_add", default_str=None)
+            if st.button("Enviar a Taller", type="primary", use_container_width=True):
+                if news: 
+                    d.setdefault("averiadas", []).extend(news)
+                    d["averiadas"].sort()
+                    guardar()
+                    st.toast(f"🛠️ {len(news)} unidades enviadas a taller")
+                    st.rerun()
+        
+        st.divider()
+        
+        if avs:
+            with st.container(border=True):
+                st.subheader("🟢 Reparaciones (Salida)")
+                st.caption(f"Unidades actualmente en taller: {len(avs)}")
+                reps = st.multiselect("Selecciona unidades reparadas:", avs)
+                if st.button("Marcar como Operativas", use_container_width=True):
+                    if reps: 
+                        for x in reps: d["averiadas"].remove(x)
+                        guardar()
+                        st.toast(f"✅ {len(reps)} unidades recuperadas")
+                        st.rerun()
+        else: 
+            st.success("✅ Toda la flota está operativa.")
+
+    # ==============================================================================
+    #                             VISTA: CONFIGURACIÓN
+    # ==============================================================================
+    elif st.session_state.vista_actual == "Configuracion":
+        st.title("⚙️ Configuración del Sistema")
+        
+        # Inicialización variables
         if "k_width" not in st.session_state: st.session_state.k_width = d.get("img_width", 450)
         if "k_font" not in st.session_state: st.session_state.k_font = d.get("font_size", 24)
         if "k_bg" not in st.session_state: st.session_state.k_bg = d.get("bg_color", "#ECE5DD")
+        if "k_text" not in st.session_state: st.session_state.k_text = d.get("text_color", "#000000")
+        
         db_colors = d.get("st_colors", ["#f8d7da"]*6)
         for i in range(6):
             if f"k_c_{i}" not in st.session_state: st.session_state[f"k_c_{i}"] = db_colors[i]
@@ -83,229 +261,134 @@ if verificar_login():
             st.session_state.k_width = d.get("img_width", 450)
             st.session_state.k_font = d.get("font_size", 24)
             st.session_state.k_bg = d.get("bg_color", "#ECE5DD")
+            st.session_state.k_text = d.get("text_color", "#000000")
             rc = d.get("st_colors", ["#f8d7da"]*6)
             for i in range(6): st.session_state[f"k_c_{i}"] = rc[i]
-            st.toast("↺ Restaurado")
+            st.toast("↺ Valores restaurados")
 
-        col_config, col_preview = st.columns([1.5, 1])
+        # Interruptor para Vista Previa
+        mostrar_preview = st.toggle("👁️ Mostrar Vista Previa en tiempo real", value=False)
+        st.markdown("---")
+
+        if mostrar_preview:
+            col_config, col_preview = st.columns([1.5, 1])
+        else:
+            col_config = st.container()
+            col_preview = None
         
         with col_config:
-            st.header("⚙️ Ajustes")
-            
-            with st.expander("1. Rangos de Unidades (Flota)", expanded=True):
+            # 1. RANGOS
+            with st.expander("📍 1. Rangos de Flota", expanded=True):
                 rangos_actuales = d.get("rangos", [])
-                for i, r in enumerate(rangos_actuales):
-                    c_txt, c_del = st.columns([4, 1])
-                    c_txt.text(f"📍 Rango {i+1}: {r[0]} - {r[1]}")
-                    if c_del.button("🗑️", key=f"del_r_{i}"):
-                        d["rangos"].pop(i); guardar(); st.rerun()
+                
+                if rangos_actuales:
+                    st.caption("Rangos activos:")
+                    for i, r in enumerate(rangos_actuales):
+                        c_info, c_action = st.columns([5, 1], vertical_alignment="center")
+                        c_info.code(f"{r[0]} ➝ {r[1]}")
+                        
+                        with c_action.popover("🗑️"):
+                            st.write("¿Eliminar?")
+                            if st.button("Sí", key=f"del_r_{i}", type="primary", use_container_width=True):
+                                d["rangos"].pop(i); guardar(); st.rerun()
+                else:
+                    st.info("No hay rangos definidos.")
 
                 st.divider()
-                with st.form("form_rangos", clear_on_submit=True):
-                    c_n1, c_n2 = st.columns(2)
-                    n_min = c_n1.number_input("Desde", min_value=1, value=1)
-                    n_max = c_n2.number_input("Hasta", min_value=1, value=100)
-                    btn_rango = st.form_submit_button("➕ Agregar Rango")
-                    
-                    if btn_rango:
-                        if n_max < n_min: st.error("Error: Final < Inicio.")
+                st.caption("➕ Crear nuevo rango:")
+                c_n1, c_n2, c_btn = st.columns([2, 2, 2], vertical_alignment="bottom")
+                n_min = c_n1.number_input("Desde", min_value=1, value=1)
+                n_max = c_n2.number_input("Hasta", min_value=1, value=100)
+                
+                if c_btn.button("Agregar", type="primary", use_container_width=True):
+                    if n_max < n_min: st.error("Error: Final < Inicio.")
+                    else:
+                        choca = False
+                        for r in d["rangos"]:
+                            if n_min <= r[1] and n_max >= r[0]: choca = True; break
+                        if choca: st.error("⚠️ Cruce de rangos.")
                         else:
-                            choca = False
-                            for r in d["rangos"]:
-                                if n_min <= r[1] and n_max >= r[0]: choca = True; break
-                            if choca: st.error("⚠️ El rango se cruza con uno existente.")
-                            else:
-                                d["rangos"].append([n_min, n_max]); d["rangos"].sort(key=lambda x: x[0]); guardar(); st.rerun()
+                            d["rangos"].append([n_min, n_max]); d["rangos"].sort(key=lambda x: x[0]); guardar(); st.rerun()
 
-            with st.expander("2. Apariencia Visual", expanded=True):
+            # 2. APARIENCIA
+            with st.expander("🎨 2. Personalizar Apariencia", expanded=False):
                 c3, c4 = st.columns(2)
                 ni = c3.slider("Ancho Imagen", 300, 800, key="k_width")
                 nf = c4.slider("Tamaño Fuente", 14, 40, key="k_font")
+                
                 st.write("**Colores:**")
-                nuevo_bg = st.color_picker("Fondo", key="k_bg")
+                cc1, cc2 = st.columns(2)
+                nuevo_bg = cc1.color_picker("Fondo Imagen", key="k_bg")
+                nuevo_text = cc2.color_picker("Color Texto", key="k_text")
+                
+                st.write("**Colores de Estaciones:**")
                 nuevos_st_colors = []
                 f1 = st.columns(3)
                 for i in range(3): nuevos_st_colors.append(f1[i].color_picker(f"C{i+1}", key=f"k_c_{i}"))
                 f2 = st.columns(3)
                 for i in range(3, 6): nuevos_st_colors.append(f2[i-3].color_picker(f"C{i+4}", key=f"k_c_{i}"))
 
-            st.divider()
-            b_save, b_cancel = st.columns([1, 1])
-            with b_save:
-                if st.button("💾 Guardar Apariencia", type="primary", width='stretch'):
-                    d["img_width"] = ni; d["font_size"] = nf
-                    d["bg_color"] = nuevo_bg; d["st_colors"] = nuevos_st_colors
-                    if guardar(): st.success("Guardado!"); st.rerun()
-            with b_cancel:
-                st.button("✖️ Reset Apariencia", type="secondary", width='stretch', on_click=revertir_cambios)
+                st.divider()
+                b_save, b_cancel = st.columns([1, 1])
+                with b_save:
+                    if st.button("💾 Guardar Cambios", type="primary", width='stretch'):
+                        d["img_width"] = ni; d["font_size"] = nf
+                        d["bg_color"] = nuevo_bg; d["text_color"] = nuevo_text
+                        d["st_colors"] = nuevos_st_colors
+                        if guardar(): st.success("Guardado!"); st.rerun()
+                with b_cancel:
+                    st.button("✖️ Restaurar", type="secondary", width='stretch', on_click=revertir_cambios)
 
-        with col_preview:
-            st.subheader("👁️ Vista Previa")
-            with st.container(border=True):
-                r_txt = " / ".join([f"{r[0]}-{r[1]}" for r in d.get("rangos",[])]) if d.get("rangos") else "Sin rangos"
-                u_demo = [1, 2, 3]
-                if d.get("rangos"):
-                    r1 = d["rangos"][0]
-                    u_demo = list(range(r1[0], min(r1[0]+5, r1[1]+1)))
-
-                datos_demo = [
-                    {"nombre": "Estación Demo", "horario": "8 AM - 1 PM", "unidades": u_demo},
-                    {"nombre": "Estación B", "horario": "2 PM - 6 PM", "unidades": []}
-                ]
-                cfg_temp = d.copy(); cfg_temp["img_width"] = ni; cfg_temp["font_size"] = nf
-                cfg_temp["bg_color"] = nuevo_bg; cfg_temp["st_colors"] = nuevos_st_colors
-                try:
-                    img_prev = generar_imagen_en_memoria(datos_demo, datetime.now(), f"Flota: {r_txt}", cfg_temp)
-                    st.image(img_prev, width=350)
-                except Exception as e: st.error(str(e))
-
-        st.divider()
-        st.subheader("3. Gestión de Estaciones")
-        
-        # --- SOLUCIÓN VISUAL: AMBOS LADOS CON FORMULARIO ---
-        c_add, c_del = st.columns(2)
-        
-        # COLUMNA IZQUIERDA: AGREGAR (CON FORMULARIO)
-        with c_add:
-            st.write("**Agregar Estación:**")
-            with st.form("form_add_estacion", clear_on_submit=True):
-                nueva_st_input = st.text_input("Nombre:")
-                btn_add_st = st.form_submit_button("➕ Agregar")
+            # 3. ESTACIONES
+            with st.expander("⛽ 3. Gestión de Estaciones", expanded=False):
+                c_add, c_del = st.columns(2, gap="large")
                 
-                if btn_add_st and nueva_st_input:
-                    nueva = nueva_st_input.strip()
-                    est_actuales = d.get("estaciones", [])
-                    est_lower = [str(e).lower().strip() for e in est_actuales]
-                    
-                    if nueva.lower() not in est_lower:
-                        d.setdefault("estaciones", []).append(nueva)
-                        if guardar():
-                            st.toast(f"✅ Agregada: {nueva}")
-                            st.rerun()
-                        else: st.toast("❌ Error DB")
-                    else: st.toast(f"⚠️ '{nueva}' ya existe.")
+                with c_add:
+                    st.write("**:green[➕] Nueva Estación**")
+                    nueva_st_input = st.text_input("Nombre:", placeholder="Ej: Texaco Norte", key="in_st")
+                    if st.button("Guardar Estación", use_container_width=True):
+                        if nueva_st_input:
+                            nueva = nueva_st_input.strip()
+                            est_actuales = d.get("estaciones", [])
+                            if nueva.lower() not in [e.lower() for e in est_actuales]:
+                                d.setdefault("estaciones", []).append(nueva)
+                                if guardar(): st.toast(f"✅ Agregada: {nueva}"); st.rerun()
+                                else: st.toast("❌ Error DB")
+                            else: st.toast("⚠️ Ya existe.")
 
-        # COLUMNA DERECHA: ELIMINAR (AHORA TAMBIÉN CON FORMULARIO PARA SIMETRÍA)
-        with c_del:
-            st.write("**Eliminar Estaciones:**")
-            # Usamos st.form aquí también para que se vea igual (caja con borde)
-            with st.form("form_del_estacion"):
-                ests = d.get("estaciones", [])
-                
-                if ests:
-                    st.caption(f"Total registradas: {len(ests)}")
-                    rem = st.multiselect("Seleccionar:", ests)
-                    
-                    # Botón de submit del formulario
-                    if st.form_submit_button("🗑️ Eliminar Seleccionadas"):
-                        if rem:
-                            for x in rem: 
-                                if x in d["estaciones"]: d["estaciones"].remove(x)
-                            if guardar(): 
-                                st.success("Eliminadas.")
-                                st.rerun()
-                        else:
-                            st.warning("Selecciona al menos una estación.")
-                else:
-                    st.info("Lista vacía.")
-                    # Botón deshabilitado para mantener la estructura visual
-                    st.form_submit_button("---", disabled=True)
-
-    # --- TALLER Y ASIGNACIÓN ---
-    with tab_taller:
-        st.header("🔧 Taller")
-        avs = d.get("averiadas", [])
-        sanas = [u for u in all_u if u not in avs]
-        news = selector_de_rangos(sanas, "taller_add", default_str=None)
-        
-        if st.button("🔴 Reportar", type="primary", width='stretch'):
-            if news: d.setdefault("averiadas", []).extend(news); d["averiadas"].sort(); guardar(); st.rerun()
-        st.divider()
-        if avs:
-            reps = st.multiselect("Reparar", avs)
-            if st.button("🔧 Reparar", width='stretch'):
-                if reps: 
-                    for x in reps: d["averiadas"].remove(x)
-                    guardar(); st.rerun()
-        else: st.success("Operativa")
-
-    with tab_asig:
-        if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
-        def ch_date():
-            dt = recuperar_historial_por_fecha(st.session_state.key_fecha_rep, usuario_actual)
-            st.session_state.reporte_diario = dt if dt else []
-            if dt: st.toast(f"Cargado: {len(dt)} registros")
-
-        c1, c2 = st.columns([1, 2], vertical_alignment="center")
-        fr = c1.date_input("Fecha", datetime.now(), key="key_fecha_rep", on_change=ch_date)
-        c2.info(f"Reporte: **{fr.strftime('%d/%m/%Y')}**")
-        st.divider()
-        
-        avs = d.get("averiadas", [])
-        op = [u for u in all_u if u not in avs]
-        ya = [u for e in st.session_state.reporte_diario for u in e['unidades']]
-        disp = [u for u in op if u not in ya]
-
-        m1,m2,m3 = st.columns(3)
-        m1.metric("Total", len(all_u)); m2.metric("Taller", len(avs)); m3.metric("Libres", len(disp))
-
-        with st.expander("➕ Asignar", expanded=True):
-            test = d.get("estaciones", [])
-            ocup = [r['nombre'] for r in st.session_state.reporte_diario]
-            dis = [e for e in test if e not in ocup]
-            
-            if dis: nom = st.selectbox("Estación", dis)
-            else: st.warning("Sin estaciones libres."); nom = None
-            
-            st.divider()
-            sh = st.checkbox("Sin horario")
-            h_str = ""
-            if not sh:
-                c_h1, c_h2 = st.columns(2)
-                h_str = f"{c_h1.selectbox('Abre', LISTA_HORAS, 9)} a {c_h2.selectbox('Cierra', LISTA_HORAS, 14)}"
-            
-            st.divider()
-            st.write("**Seleccionar Unidades:**")
-            sel = selector_de_rangos(disp, "main_asig", default_str=None)
-            
-            if st.button("Guardar Asignación", type="primary", width='stretch'):
-                if nom and sel: 
-                    st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sorted(sel)})
-                    st.rerun()
-                elif not nom: st.error("Falta Estación")
-                elif not sel: st.error("Faltan Unidades")
-
-        if st.session_state.reporte_diario:
-            st.divider()
-            for i, e in enumerate(st.session_state.reporte_diario):
-                with st.container(border=True):
-                    c_t, c_b = st.columns([0.7, 0.3])
-                    c_t.markdown(f"**{e['nombre']}** {e['horario']}")
-                    if c_b.button("🗑️", key=f"d{i}"): st.session_state.reporte_diario.pop(i); st.rerun()
-                    
-                    if st.session_state.ed_idx == i:
-                        st.info("Editando...")
-                        to_rm = st.multiselect("Quitar", e['unidades'], key=f"md{i}")
-                        if st.button("Quitar", key=f"brm{i}") and to_rm:
-                            for x in to_rm: e['unidades'].remove(x)
-                            st.rerun()
-                        
-                        others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
-                        cands = [u for u in op if u not in others and u not in e['unidades']]
-                        to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
-                        if st.button("Agregar", key=f"bad{i}") and to_add:
-                            e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
-                        if st.button("✅ Listo", key=f"ok{i}", width='stretch'):
-                            st.session_state.ed_idx = None; st.rerun()
+                with c_del:
+                    st.write("**:red[🗑️] Eliminar Estaciones**")
+                    ests = d.get("estaciones", [])
+                    if ests:
+                        rem = st.multiselect("Seleccionar:", ests, placeholder="Elige para borrar...")
+                        with st.popover("Eliminar Seleccionadas", use_container_width=True, disabled=not rem):
+                            st.write("⚠️ **¿Confirmar borrado?**")
+                            if st.button("Sí, borrar definitivamente", type="primary", use_container_width=True):
+                                for x in rem: 
+                                    if x in d["estaciones"]: d["estaciones"].remove(x)
+                                if guardar(): st.toast("🗑️ Eliminadas"); st.rerun()
                     else:
-                        st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;'>{''.join([f'<span style=background:#eee;padding:2px;border:1px solid #ccc>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
-            
-            st.divider()
-            txt_r = st.text_input("Texto Rango", value="Reporte Diario")
-            if st.button("📸 FOTO", type="primary", width='stretch'):
-                st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
-            if 'img_mem' in st.session_state:
-                st.image(st.session_state.img_mem, width=300)
-                st.download_button("📥", st.session_state.img_mem, "R.png", "image/png", width='stretch')
-            if st.button("💾 Historial", width='stretch'):
-                if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): st.success("OK")
+                        st.info("Lista vacía.")
+
+        if col_preview:
+            with col_preview:
+                st.subheader("👁️ Vista Previa")
+                with st.container(border=True):
+                    r_txt = " / ".join([f"{r[0]}-{r[1]}" for r in d.get("rangos",[])]) if d.get("rangos") else "Sin rangos"
+                    u_demo = [1, 2, 3]
+                    if d.get("rangos"):
+                        r1 = d["rangos"][0]
+                        u_demo = list(range(r1[0], min(r1[0]+5, r1[1]+1)))
+
+                    datos_demo = [
+                        {"nombre": "Estación Demo", "horario": "8 AM - 1 PM", "unidades": u_demo},
+                        {"nombre": "Estación B", "horario": "2 PM - 6 PM", "unidades": []}
+                    ]
+                    cfg_temp = d.copy(); cfg_temp["img_width"] = ni; cfg_temp["font_size"] = nf
+                    cfg_temp["bg_color"] = nuevo_bg; cfg_temp["st_colors"] = nuevos_st_colors
+                    cfg_temp["text_color"] = nuevo_text
+                    
+                    try:
+                        img_prev = generar_imagen_en_memoria(datos_demo, datetime.now(), f"Flota: {r_txt}", cfg_temp)
+                        st.image(img_prev, width=350)
+                    except Exception as e: st.error(str(e))
