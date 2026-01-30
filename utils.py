@@ -18,87 +18,124 @@ def inyectar_css():
 def get_cookie_manager():
     return stx.CookieManager(key="gestor_cookies_flota")
 
-# --- ANIMACIÓN DEL AUTOBÚS ---
+# --- FUNCIÓN ANIMACIÓN AUTOBÚS (PANTALLA COMPLETA) ---
 def mostrar_bus_loading():
+    """
+    Muestra una capa (overlay) que cubre toda la pantalla con el autobús.
+    Funciona visualmente mejor que un elemento insertado.
+    """
     loading_html = """
     <style>
-        .loader-container {
+        /* El overlay cubre toda la ventana del navegador */
+        .bus-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #ffffff; /* Fondo blanco limpio */
+            z-index: 999999; /* Se asegura de estar encima de todo */
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            height: 200px;
-            width: 100%;
+        }
+        
+        .bus-emoji {
+            font-size: 80px;
+            animation: bounceBus 0.6s infinite alternate;
+            margin-bottom: 20px;
+        }
+        
+        .loading-bar {
+            width: 200px;
+            height: 6px;
+            background-color: #eee;
+            border-radius: 3px;
             overflow: hidden;
-            background-color: transparent;
         }
-        .bus-wrapper {
-            font-size: 60px;
-            animation: drive 2.5s infinite linear;
-            position: relative;
+        
+        .loading-progress {
+            width: 100%;
+            height: 100%;
+            background-color: #007BFF; /* Azul del sistema */
+            animation: loadBar 1.5s infinite ease-in-out;
+            transform-origin: left;
         }
+        
         .loading-text {
-            margin-top: 10px;
+            margin-top: 15px;
             font-family: sans-serif;
-            color: #666;
-            font-weight: bold;
-            font-size: 16px;
-            animation: blink 1.5s infinite;
+            color: #555;
+            font-weight: 600;
+            font-size: 18px;
+            animation: pulseText 1.5s infinite;
         }
-        @keyframes drive {
-            0% { transform: translateX(-150%); }
-            100% { transform: translateX(150%); }
+
+        @keyframes bounceBus {
+            from { transform: translateY(0); }
+            to { transform: translateY(-10px); }
         }
-        @keyframes blink {
+        
+        @keyframes loadBar {
+            0% { transform: scaleX(0); }
+            50% { transform: scaleX(0.7); }
+            100% { transform: scaleX(1); opacity: 0; }
+        }
+        
+        @keyframes pulseText {
             0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.6; }
         }
     </style>
-    <div class="loader-container">
-        <div class="bus-wrapper">🚌💨</div>
+    
+    <div class="bus-overlay">
+        <div class="bus-emoji">🚌</div>
+        <div class="loading-bar">
+            <div class="loading-progress"></div>
+        </div>
         <div class="loading-text">Cargando flota...</div>
     </div>
     """
-    return st.markdown(loading_html, unsafe_allow_html=True)
+    st.markdown(loading_html, unsafe_allow_html=True)
 
 def verificar_login():
     """
     Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
     """
-    # 1. Inicializamos el gestor
     cookie_manager = get_cookie_manager()
     
-    # --- CORRECCIÓN CRÍTICA: BANDERA DE SALIDA ---
-    # Si acabamos de pulsar "Cerrar Sesión", ignoramos la cookie en este reinicio
+    # 1. Verificamos si hay una solicitud de cierre pendiente
     if st.session_state.get("logout_pending", False):
-        # Consumimos la bandera para que la próxima vez (F5) ya funcione normal
         st.session_state["logout_pending"] = False
         st.session_state.autenticado = False
         st.session_state.usuario_actual = None
         return False, cookie_manager
 
-    # 2. Si no estamos saliendo, intentamos leer la cookie
+    # 2. Intentamos leer la cookie
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
-    # Inicializamos variables
+    # Inicializamos variables de sesión
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
     if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
 
-    # Lógica de Autologin (Solo si existe cookie y no estamos ya dentro)
+    # --- LÓGICA DE AUTOLOGIN CON ANIMACIÓN ---
+    # Si encontramos cookie y aún no hemos iniciado sesión en Python
     if cookie_user and not st.session_state.autenticado:
-        # Placeholder para el autobús mientras carga
-        loader = st.empty()
-        with loader:
-            mostrar_bus_loading()
+        # MOSTRAR EL AUTOBÚS AHORA (Bloqueante visualmente)
+        mostrar_bus_loading()
         
+        # Validamos sesión
         st.session_state.autenticado = True
         st.session_state.usuario_actual = cookie_user
         
-        # Pequeña pausa para ver la animación y asegurar carga
-        time.sleep(1) 
-        loader.empty() # Quitamos el bus
-        st.rerun() # Recargamos para mostrar la interfaz limpia
+        # Pausa intencional para que se vea la animación (1.5 segundos)
+        time.sleep(1.5)
+        
+        # Recargamos la página para quitar la animación y mostrar el dashboard
+        st.rerun()
 
+    # Si ya estamos dentro
     if st.session_state.autenticado:
         return True, cookie_manager
 
@@ -117,14 +154,16 @@ def verificar_login():
             
             if btn_in:
                 if validar_usuario_db(user, pwd):
+                    # Login manual exitoso -> Mostramos bus también
+                    mostrar_bus_loading()
+                    
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = user.lower().strip()
                     
                     if mantener:
                         cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                     
-                    st.success("Accediendo...")
-                    time.sleep(0.5)
+                    time.sleep(1.5)
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas.")
@@ -161,16 +200,14 @@ def verificar_login():
                 if totp_check.verify(code_limpio, valid_window=1):
                     ok, msg = registrar_usuario_con_totp(reg_u, reg_p, secret)
                     if ok:
-                        st.success("✅ Registro Exitoso!")
+                        mostrar_bus_loading() # Animación al registrarse
                         del st.session_state['temp_totp_secret']
                         
-                        # Autologin
                         cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
                         
-                        st.success("Entrando...")
-                        time.sleep(1)
+                        time.sleep(1.5)
                         st.rerun()
                     else:
                         st.error(msg)
