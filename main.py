@@ -2,7 +2,7 @@ import streamlit as st
 from datetime import datetime
 import urllib.parse
 import base64 
-import time # IMPORTANTE: Necesario para el delay al cerrar sesión
+import time 
 import streamlit.components.v1 as components 
 
 # IMPORTACIONES
@@ -129,27 +129,18 @@ if is_authenticated:
             
         st.write("") 
         
-        # --- LÓGICA DE CIERRE DE SESIÓN CORREGIDA ---
-        # CERRAR SESIÓN
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                # 1. Ordenamos borrar la cookie al navegador
                 try: cookie_manager.delete("gestor_flota_user")
                 except: pass
-                
-                # 2. Limpiamos las variables de sesión locales
                 st.session_state.autenticado = False
                 st.session_state.usuario_actual = None
                 keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
                 for k in keys_to_clear:
                     if k in st.session_state: del st.session_state[k]
                 
-                # 3. ACTIVAMOS LA BANDERA DE SALIDA
-                # Esto le dice a utils.py: "En el próximo reinicio, ignora la cookie si aún existe"
                 st.session_state["logout_pending"] = True
-                
-                # 4. Recargamos
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
@@ -268,7 +259,8 @@ if is_authenticated:
                         if st.button("✅ Finalizar Edición", key=f"ok{i}", use_container_width=True):
                             st.session_state.ed_idx = None; st.rerun()
                     else:
-                        st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
+                        # --- CAMBIO AQUÍ: MARGEN INFERIOR AÑADIDO (margin-bottom:10px) ---
+                        st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;margin-bottom:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
             st.divider()
             st.subheader("📤 Exportar y Compartir")
@@ -309,7 +301,6 @@ if is_authenticated:
         st.title("🔧 Taller de Mantenimiento")
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
-        
         with st.container(border=True):
             st.subheader("🔴 Reportar Avería")
             st.caption("Selecciona las unidades que entran al taller:")
@@ -321,7 +312,6 @@ if is_authenticated:
                     guardar()
                     st.toast(f"🛠️ {len(news)} unidades enviadas a taller")
                     st.rerun()
-        
         st.divider()
         if avs:
             with st.container(border=True):
