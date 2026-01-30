@@ -18,9 +18,8 @@ def inyectar_css():
 def get_cookie_manager():
     return stx.CookieManager(key="gestor_cookies_flota")
 
-# --- FUNCIÓN DE LOADER ANIMADO ---
+# --- ANIMACIÓN DEL AUTOBÚS ---
 def mostrar_bus_loading():
-    """Muestra una animación CSS de un autobús viajando."""
     loading_html = """
     <style>
         .loader-container {
@@ -66,35 +65,44 @@ def verificar_login():
     """
     Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
     """
-    # 1. Creamos un placeholder para la animación
-    loader_placeholder = st.empty()
-    
-    # 2. Mostramos el autobús MIENTRAS cargamos el manager
-    # (Solo si no estamos autenticados aún, para no molestar en cada interacción pequeña)
-    if 'autenticado' not in st.session_state or not st.session_state.autenticado:
-        with loader_placeholder:
-            mostrar_bus_loading()
-    
-    # 3. Inicializamos el gestor y buscamos la cookie
+    # 1. Inicializamos el gestor
     cookie_manager = get_cookie_manager()
-    cookie_user = cookie_manager.get(cookie="gestor_flota_user")
     
-    # Una vez cargado, limpiamos la animación inmediatamente
-    loader_placeholder.empty()
+    # --- CORRECCIÓN CRÍTICA: BANDERA DE SALIDA ---
+    # Si acabamos de pulsar "Cerrar Sesión", ignoramos la cookie en este reinicio
+    if st.session_state.get("logout_pending", False):
+        # Consumimos la bandera para que la próxima vez (F5) ya funcione normal
+        st.session_state["logout_pending"] = False
+        st.session_state.autenticado = False
+        st.session_state.usuario_actual = None
+        return False, cookie_manager
+
+    # 2. Si no estamos saliendo, intentamos leer la cookie
+    cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
     # Inicializamos variables
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
     if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
 
-    # Lógica de Autologin
+    # Lógica de Autologin (Solo si existe cookie y no estamos ya dentro)
     if cookie_user and not st.session_state.autenticado:
+        # Placeholder para el autobús mientras carga
+        loader = st.empty()
+        with loader:
+            mostrar_bus_loading()
+        
         st.session_state.autenticado = True
         st.session_state.usuario_actual = cookie_user
+        
+        # Pequeña pausa para ver la animación y asegurar carga
+        time.sleep(1) 
+        loader.empty() # Quitamos el bus
+        st.rerun() # Recargamos para mostrar la interfaz limpia
 
     if st.session_state.autenticado:
         return True, cookie_manager
 
-    # --- LOGIN ---
+    # --- PANTALLA DE LOGIN ---
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("Gestor de Flota ⛽")
@@ -115,9 +123,8 @@ def verificar_login():
                     if mantener:
                         cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                     
-                    with loader_placeholder:
-                        mostrar_bus_loading() # Mostramos bus al entrar
-                    time.sleep(1.5) 
+                    st.success("Accediendo...")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas.")
@@ -157,13 +164,13 @@ def verificar_login():
                         st.success("✅ Registro Exitoso!")
                         del st.session_state['temp_totp_secret']
                         
+                        # Autologin
                         cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
                         
-                        with loader_placeholder:
-                            mostrar_bus_loading()
-                        time.sleep(1.5)
+                        st.success("Entrando...")
+                        time.sleep(1)
                         st.rerun()
                     else:
                         st.error(msg)
