@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta # IMPORTANTE: timedelta para matar la cookie
 import urllib.parse
 import base64 
 import time 
@@ -16,11 +16,7 @@ inyectar_css()
 
 # --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO ---
 def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
-    """
-    Genera el botón JS para compartir.
-    """
     b64 = base64.b64encode(img_bytes.getvalue()).decode()
-    
     html_code = f"""
     <html>
         <head>
@@ -46,7 +42,7 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
         </head>
         <body>
             <button class="btn-share" onclick="compartir()">
-                🚀 Abrir WhatsApp / Compartir
+                🚀 Compartir
             </button>
             <script>
             async function compartir() {{
@@ -111,18 +107,26 @@ if is_authenticated:
             
         st.write("") 
         
+        # --- LÓGICA DE CIERRE DE SESIÓN NUCLEAR ---
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
+                # 1. "Matamos" la cookie poniéndole fecha de expiración en el PASADO (Ayer)
+                # Esto obliga al navegador a descartarla sí o sí.
+                cookie_manager.set("gestor_flota_user", "", expires_at=datetime.now() - timedelta(days=1))
+                
+                # 2. Intento de borrado estándar (Doble seguridad)
                 try: cookie_manager.delete("gestor_flota_user")
                 except: pass
-                st.session_state.autenticado = False
-                st.session_state.usuario_actual = None
-                keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
-                for k in keys_to_clear:
-                    if k in st.session_state: del st.session_state[k]
                 
+                # 3. Limpieza total de RAM de Python
+                st.session_state.clear()
+                
+                # 4. Bandera para que utils.py sepa que no debe auto-loguear
                 st.session_state["logout_pending"] = True
+                
+                st.warning("Cerrando sesión...")
+                time.sleep(1.5) # Espera técnica para que el navegador procese la cookie muerta
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
@@ -155,7 +159,7 @@ if is_authenticated:
     # ==============================================================================
     #                             VISTA: ASIGNACIÓN
     # ==============================================================================
-    if st.session_state.vista_actual == "Asignacion":
+    if st.session_state.get('vista_actual') == "Asignacion":
         st.title("⛽ Asignación de Unidades")
         
         if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
@@ -250,32 +254,22 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            # Generamos la foto automáticamente si se necesita
             if 'img_mem' not in st.session_state or st.button("🔄 Generar Imagen"):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
             
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
-                
-                # --- BOTONERA FINAL ---
                 c1, c2 = st.columns(2)
                 
-                # BOTÓN 1: SOLO GUARDAR
                 with c1:
                     if st.button("💾 Guardar", type="primary", use_container_width=True):
                         if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
                             st.success("✅ Guardado en base de datos")
                 
-                # BOTÓN 2: COMPARTIR + GUARDAR AUTOMÁTICO
                 with c2:
-                    # Usamos un botón de Streamlit para disparar el guardado primero
                     if st.button("📲 Compartir", use_container_width=True):
-                        # 1. Guardamos silenciosamente
                         guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual)
                         st.toast("✅ Guardado automático")
-                        
-                        # 2. Mostramos el botón JS para abrir WhatsApp
-                        # (Este botón aparece tras hacer click en Compartir)
                         accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
 
             st.markdown("---")
@@ -293,7 +287,7 @@ if is_authenticated:
     # ==============================================================================
     #                             VISTA: TALLER
     # ==============================================================================
-    elif st.session_state.vista_actual == "Taller":
+    elif st.session_state.get('vista_actual') == "Taller":
         st.title("🔧 Taller de Mantenimiento")
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
@@ -326,7 +320,7 @@ if is_authenticated:
     # ==============================================================================
     #                             VISTA: CONFIGURACIÓN
     # ==============================================================================
-    elif st.session_state.vista_actual == "Configuracion":
+    elif st.session_state.get('vista_actual') == "Configuracion":
         st.title("⚙️ Configuración del Sistema")
         if "k_width" not in st.session_state: st.session_state.k_width = d.get("img_width", 450)
         if "k_font" not in st.session_state: st.session_state.k_font = d.get("font_size", 24)
