@@ -204,30 +204,43 @@ if is_authenticated:
             ocup = [r['nombre'] for r in st.session_state.reporte_diario]
             dis = [e for e in test if e not in ocup]
             
-            c_sel_st, c_sel_h = st.columns([1, 1])
-            with c_sel_st:
-                if dis: nom = st.selectbox("Estación", dis)
-                else: st.warning("No hay estaciones disponibles."); nom = None
+            # --- DISEÑO MEJORADO: ALINEACIÓN PERFECTA ---
+            # Usamos 4 columnas con alineación inferior para que todo cuadre
+            c_st, c_tg, c_h1, c_h2 = st.columns([3, 1, 1.2, 1.2], vertical_alignment="bottom")
             
-            with c_sel_h:
-                sh = st.checkbox("Sin horario")
-                h_str = ""
-                if not sh:
-                    col_h1, col_h2 = st.columns(2)
-                    h1 = col_h1.selectbox("Abre", LISTA_HORAS, 9)
-                    h2 = col_h2.selectbox("Cierra", LISTA_HORAS, 14)
-                    h_str = f"{h1} a {h2}"
+            with c_st:
+                if dis: 
+                    nom = st.selectbox("Estación", dis, placeholder="Selecciona una...", index=None)
+                else: 
+                    st.warning("Sin estaciones.")
+                    nom = None
+            
+            with c_tg:
+                # Usamos Toggle en vez de Checkbox, es más moderno
+                # La etiqueta vacía " " es para darle altura y que se alinee con los inputs
+                sin_h = st.toggle("Sin horario", value=False)
+                
+            # Definimos las horas (Deshabilitadas si se activa 'Sin horario')
+            with c_h1:
+                h1 = st.selectbox("Abre", LISTA_HORAS, index=LISTA_HORAS.index("09 AM") if "09 AM" in LISTA_HORAS else 0, disabled=sin_h)
+            
+            with c_h2:
+                h2 = st.selectbox("Cierra", LISTA_HORAS, index=LISTA_HORAS.index("02 PM") if "02 PM" in LISTA_HORAS else 0, disabled=sin_h)
+
+            # Construimos el string de horario
+            h_str = "" if sin_h else f"{h1} a {h2}"
             
             st.markdown("---")
             st.write("**Seleccionar Unidades:**")
             sel = selector_de_rangos(disp, "main_asig", default_str=None)
             
+            # Botón con ancho completo para cerrar el bloque visualmente
             if st.button("💾 Guardar Asignación", type="primary", use_container_width=True):
                 if nom and sel: 
                     st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sorted(sel)})
                     st.rerun()
-                elif not nom: st.error("Selecciona una estación")
-                elif not sel: st.error("Selecciona al menos una unidad")
+                elif not nom: st.error("⚠️ Falta seleccionar la Estación")
+                elif not sel: st.error("⚠️ Falta seleccionar Unidades")
 
         if st.session_state.reporte_diario:
             st.divider()
