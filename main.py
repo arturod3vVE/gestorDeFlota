@@ -220,69 +220,43 @@ if is_authenticated:
                         if st.button("🗑️ Borrar", key=f"del_rep_{i}", type="primary", use_container_width=True):
                              st.session_state.reporte_diario.pop(i); st.rerun()
                     
-                    # --- MODO EDICIÓN ---
                     if st.session_state.ed_idx == i:
                         st.info("✏️ Editando unidades...")
-                        
-                        # Capturamos las selecciones en variables
-                        to_rm = st.multiselect("Quitar unidades de esta estación:", e['unidades'], key=f"md{i}")
-                        # Botón manual por si acaso
+                        to_rm = st.multiselect("Quitar:", e['unidades'], key=f"md{i}")
                         if st.button("Quitar seleccionadas", key=f"brm{i}") and to_rm:
                             for x in to_rm: e['unidades'].remove(x)
                             st.rerun()
-                        
                         st.markdown("---")
                         
                         st.write("**Agregar más unidades:**")
                         others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
                         cands = [u for u in op if u not in others and u not in e['unidades']]
-                        
-                        # Capturamos selección de agregar
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
-                        # Botón manual por si acaso
                         if st.button("Agregar seleccionadas", key=f"bad{i}") and to_add:
                             e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
-                            
                         st.markdown("---")
                         
-                        # --- BOTONERÍA INTELIGENTE ---
-                        # Detectamos si hay cambios pendientes (usuario seleccionó pero no aplicó)
                         cambios_pendientes = (len(to_rm) > 0) or (len(to_add) > 0)
-                        
                         if cambios_pendientes:
                             st.warning(f"⚠️ Tienes cambios sin guardar: (Quitar: {len(to_rm)} | Agregar: {len(to_add)})")
-                            
                             col_conf, col_disc = st.columns(2)
-                            
-                            # Opción A: Aplicar todo automáticamente y salir
                             with col_conf:
                                 if st.button("💾 Guardar cambios y Salir", key=f"smart_save_{i}", type="primary", use_container_width=True):
-                                    # 1. Aplicamos Quitar
                                     if to_rm:
                                         for x in to_rm: 
                                             if x in e['unidades']: e['unidades'].remove(x)
-                                    # 2. Aplicamos Agregar
-                                    if to_add:
-                                        e['unidades'].extend(to_add)
-                                    
-                                    # 3. Ordenamos y Salimos
+                                    if to_add: e['unidades'].extend(to_add)
                                     e['unidades'].sort()
                                     st.session_state.ed_idx = None
                                     st.toast("✅ Cambios aplicados correctamente")
                                     st.rerun()
-                            
-                            # Opción B: Salir sin hacer nada
                             with col_disc:
                                 if st.button("🗑️ Descartar y Salir", key=f"smart_disc_{i}", use_container_width=True):
                                     st.session_state.ed_idx = None
                                     st.rerun()
-                        
                         else:
-                            # Si NO hay cambios pendientes, mostramos el botón normal
                             if st.button("✅ Finalizar Edición", key=f"ok_{i}", type="primary", use_container_width=True):
                                 st.session_state.ed_idx = None; st.rerun()
-                            
-                    # --- MODO VISUALIZACIÓN ---
                     else:
                         st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;margin-bottom:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
@@ -290,8 +264,18 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            if 'img_mem' not in st.session_state or st.button("🔄 Generar Imagen"):
+            # --- ZONA DE GENERACIÓN CON AUTOGUARDADO ---
+            # Separamos el botón de la lógica inicial para detectar el clic explícito
+            btn_generar = st.button("🔄 Generar Imagen", type="primary", use_container_width=True)
+            
+            if btn_generar or 'img_mem' not in st.session_state:
+                # 1. Generar la imagen
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
+                
+                # 2. SI FUE EL BOTÓN EL QUE LO ACTIVÓ -> GUARDAR EN BASE DE DATOS
+                if btn_generar:
+                    if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual):
+                        st.toast("✅ Reporte guardado automáticamente")
             
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
