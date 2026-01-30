@@ -1,8 +1,10 @@
 import streamlit as st
 import pyotp
 import qrcode
+import time
 from io import BytesIO
 from datetime import datetime
+import extra_streamlit_components as stx # IMPORTANTE: Librería de Cookies
 from database import validar_usuario_db, registrar_usuario_con_totp, restablecer_con_totp
 
 def inyectar_css():
@@ -13,12 +15,36 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
+# --- FUNCIÓN PARA OBTENER EL GESTOR DE COOKIES ---
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
+
 def verificar_login():
+    """
+    Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
+    """
+    # 1. Inicializamos el gestor de cookies
+    cookie_manager = get_cookie_manager()
+    
+    # Intentamos leer la cookie "gestor_flota_user"
+    # A veces tarda un microsegundo en cargar, por eso el sleep si es necesario
+    cookie_user = cookie_manager.get(cookie="gestor_flota_user")
+
+    # 2. Inicializamos variables de sesión si no existen
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
     if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
 
-    if st.session_state.autenticado: return True
+    # 3. Lógica de Persistencia (Si hay cookie, autologin)
+    if cookie_user and not st.session_state.autenticado:
+        st.session_state.autenticado = True
+        st.session_state.usuario_actual = cookie_user
 
+    # 4. Si ya estamos autenticados (por cookie o por sesión), retornamos True
+    if st.session_state.autenticado:
+        return True, cookie_manager
+
+    # 5. Si NO estamos autenticados, mostramos el Login
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("Gestor de Flota ⛽")
@@ -28,11 +54,19 @@ def verificar_login():
             with st.form("login_form"):
                 user = st.text_input("Usuario", key="l_u")
                 pwd = st.text_input("Contraseña", type="password", key="l_p")
+                mantener = st.checkbox("Mantener sesión iniciada", value=True)
                 btn_in = st.form_submit_button("Iniciar Sesión", type="primary", use_container_width=True)
+            
             if btn_in:
                 if validar_usuario_db(user, pwd):
+                    # Login correcto
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = user.lower().strip()
+                    
+                    # SI ELIGIÓ MANTENER SESIÓN, GUARDAMOS LA COOKIE
+                    if mantener:
+                        cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime(2030, 1, 1))
+                    
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas.")
@@ -71,8 +105,11 @@ def verificar_login():
                     if ok:
                         st.success("✅ Registro Exitoso!")
                         del st.session_state['temp_totp_secret']
+                        # Al registrarse también guardamos cookie para entrar directo
+                        cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime(2030, 1, 1))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
+                        time.sleep(1) # Dar tiempo a la cookie
                         st.rerun()
                     else:
                         st.error(msg)
@@ -92,7 +129,8 @@ def verificar_login():
                 if ok: st.success(msg)
                 else: st.error(msg)
 
-    return False
+    # Retornamos False si no se ha logueado
+    return False, cookie_manager
 
 def obtener_lista_horas_puntuales():
     horas = []
@@ -101,11 +139,8 @@ def obtener_lista_horas_puntuales():
         horas.append(t)
     return horas
 
-# --- SELECTOR DE RANGOS CON INPUTS ---
+# --- SELECTOR DE RANGOS (INPUTS) ---
 def selector_de_rangos(pool_unidades, key_unico, default_str=None):
-    """
-    Selector con Checkbox para habilitar filtro numérico (Inputs).
-    """
     if not pool_unidades:
         st.info("No hay unidades disponibles.")
         return []
@@ -114,23 +149,18 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
     min_total = pool_sorted[0]
     max_total = pool_sorted[-1]
 
-    # 1. Checkbox para activar
-    # Si está desactivado, mostramos todo.
     usar_filtro = st.checkbox("🔎 Filtrar lista por rango", value=False, key=f"chk_f_{key_unico}")
 
     f_min = min_total
     f_max = max_total
 
-    # 2. Si activa el checkbox, mostramos los inputs numéricos
     if usar_filtro:
         c1, c2 = st.columns(2)
         with c1:
-            # step=1 permite subir y bajar con flechas
             f_min = st.number_input("Desde:", min_value=0, value=min_total, step=1, key=f"fm_{key_unico}")
         with c2:
             f_max = st.number_input("Hasta:", min_value=0, value=max_total, step=1, key=f"fx_{key_unico}")
         
-        # Filtramos la lista
         opciones_filtradas = [u for u in pool_sorted if f_min <= u <= f_max]
         
         if not opciones_filtradas:
@@ -138,7 +168,6 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
     else:
         opciones_filtradas = pool_sorted
 
-    # 3. Selector final
     seleccion = st.multiselect(
         f"Seleccionar unidades ({len(opciones_filtradas)}):", 
         opciones_filtradas, 
