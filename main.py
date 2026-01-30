@@ -130,26 +130,26 @@ if is_authenticated:
         st.write("") 
         
         # --- LÓGICA DE CIERRE DE SESIÓN CORREGIDA ---
+        # CERRAR SESIÓN
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                # 1. Mandamos borrar la cookie
-                try: 
-                    cookie_manager.delete("gestor_flota_user")
-                except: 
-                    pass
+                # 1. Ordenamos borrar la cookie al navegador
+                try: cookie_manager.delete("gestor_flota_user")
+                except: pass
                 
-                # 2. Borramos la sesión de Python
+                # 2. Limpiamos las variables de sesión locales
                 st.session_state.autenticado = False
                 st.session_state.usuario_actual = None
                 keys_to_clear = ["datos_app", "reporte_diario", "k_width", "k_font", "k_bg", "k_text", "new_min", "new_max", "input_new_st", "vista_actual"] + [f"k_c_{i}" for i in range(6)]
                 for k in keys_to_clear:
                     if k in st.session_state: del st.session_state[k]
                 
-                # 3. CRUCIAL: Esperamos a que el navegador procese el borrado antes de recargar
-                st.warning("Cerrando sesión, por favor espera...")
-                time.sleep(2) 
+                # 3. ACTIVAMOS LA BANDERA DE SALIDA
+                # Esto le dice a utils.py: "En el próximo reinicio, ignora la cookie si aún existe"
+                st.session_state["logout_pending"] = True
                 
+                # 4. Recargamos
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
