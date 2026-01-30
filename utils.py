@@ -15,8 +15,8 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
-# --- CORRECCIÓN AQUÍ: Quitamos el parámetro obsoleto ---
-@st.cache_resource
+# --- CORRECCIÓN: ELIMINAMOS @st.cache_resource ---
+# El CookieManager debe crearse en cada ejecución para interactuar con el navegador
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -28,6 +28,7 @@ def verificar_login():
     cookie_manager = get_cookie_manager()
     
     # Intentamos leer la cookie "gestor_flota_user"
+    # Nota: stx a veces necesita un pequeño refresh para captar la cookie en la primera carga
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
     # 2. Inicializamos variables de sesión si no existen
@@ -168,9 +169,4 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
         opciones_filtradas = pool_sorted
 
     seleccion = st.multiselect(
-        f"Seleccionar unidades ({len(opciones_filtradas)}):", 
-        opciones_filtradas, 
-        key=f"multi_{key_unico}"
-    )
-    
-    return seleccion
+        f"Seleccionar
