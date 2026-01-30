@@ -6,6 +6,7 @@ import requests
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import gspread
+import re
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
@@ -35,6 +36,8 @@ def conectar_google_sheets():
         return None
 
 def cargar_datos_db():
+    default_colors = ["#f8d7da", "#fff3cd", "#d1e7dd", "#cff4fc", "#e2e3e5", "#f0f2f6"]
+    
     datos = {
         "averiadas": [],
         "rango_min": 1,
@@ -42,7 +45,9 @@ def cargar_datos_db():
         "estaciones": ["bp", "Texaco", "Cartonera Petare"],
         "password": "admin",
         "font_size": 24,
-        "img_width": 450
+        "img_width": 450,
+        "bg_color": "#ECE5DD",
+        "st_colors": default_colors
     }
     
     sh = conectar_google_sheets()
@@ -52,11 +57,26 @@ def cargar_datos_db():
         ws_config = sh.worksheet("Config")
         vals_config = ws_config.get_all_values()
         
+        # Carga básica
         if len(vals_config) >= 1: datos["rango_min"] = int(vals_config[0][1])
         if len(vals_config) >= 2: datos["rango_max"] = int(vals_config[1][1])
         if len(vals_config) >= 3: datos["password"] = vals_config[2][1]
         if len(vals_config) >= 4: datos["font_size"] = int(vals_config[3][1])
         if len(vals_config) >= 5: datos["img_width"] = int(vals_config[4][1])
+        
+        # Carga de colores (Filas nuevas)
+        if len(vals_config) >= 6 and len(vals_config[5]) > 1: 
+            datos["bg_color"] = vals_config[5][1]
+        
+        loaded_st_colors = []
+        for i in range(6):
+            row_idx = 6 + i
+            if len(vals_config) > row_idx and len(vals_config[row_idx]) > 1:
+                 loaded_st_colors.append(vals_config[row_idx][1])
+        if loaded_st_colors:
+             while len(loaded_st_colors) < 6:
+                 loaded_st_colors.append(default_colors[len(loaded_st_colors)])
+             datos["st_colors"] = loaded_st_colors
         
         try:
             ws_est = sh.worksheet("Estaciones")
@@ -81,13 +101,20 @@ def guardar_datos_db(datos):
     try:
         ws_config = sh.worksheet("Config")
         ws_config.clear()
-        ws_config.update('A1', [
+        
+        # Guardamos todo, incluyendo colores
+        config_rows = [
             ['Min', datos["rango_min"]], 
             ['Max', datos["rango_max"]],
             ['Password', datos["password"]],
             ['FontSize', datos["font_size"]],
-            ['ImgWidth', datos["img_width"]]
-        ])
+            ['ImgWidth', datos["img_width"]],
+            ['BgColor', datos["bg_color"]]
+        ]
+        for i, col in enumerate(datos["st_colors"]):
+             config_rows.append([f'StColor{i+1}', col])
+
+        ws_config.update('A1', config_rows)
         
         ws_est = sh.worksheet("Estaciones")
         ws_est.clear()
@@ -115,19 +142,29 @@ def verificar_login():
     if not st.session_state.autenticado:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.title("🔒 Acceso Seguro")
-            password_real = st.session_state.datos_app.get("password", "admin")
-            password_input = st.text_input("Contraseña", type="password")
-            if st.button("Entrar", type="primary", use_container_width=True):
-                if password_input == password_real:
+            st.title("🔒 Acceso")
+            
+            # --- CAMBIO CLAVE AQUÍ: Usamos st.form ---
+            with st.form("login_form"):
+                pwd = st.text_input("Contraseña", type="password")
+                # El botón ahora es un submit_button, que reacciona al Enter
+                submitted = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+            
+            if submitted:
+                if pwd == st.session_state.datos_app.get("password", "admin"):
                     st.session_state.autenticado = True
                     st.rerun()
-                else: st.error("Incorrecto")
+                else:
+                    st.error("Contraseña incorrecta")
+                    
         return False
     return True
 
-# --- 4. RECURSOS GRÁFICOS ---
+# --- 4. RECURSOS GRÁFICOS (FUENTES Y TEXTO) ---
 ICONO_BOMBA = "icono_bomba.png"
+FONT_REGULAR = "Roboto-Regular.ttf"
+FONT_BOLD = "Roboto-Bold.ttf"
+
 def obtener_icono_bomba():
     if not os.path.exists(ICONO_BOMBA):
         try:
@@ -144,142 +181,128 @@ def obtener_icono_bomba():
         except: return None
     return None
 
-# --- 5. GENERADOR DE IMAGEN (CON CEROS A LA IZQUIERDA) ---
+def descargar_fuentes():
+    # Descargamos Roboto para soporte de tildes
+    urls = {
+        FONT_REGULAR: "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf",
+        FONT_BOLD: "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
+    }
+    for filename, url in urls.items():
+        if not os.path.exists(filename):
+            try:
+                r = requests.get(url)
+                with open(filename, 'wb') as f:
+                    f.write(r.content)
+            except: pass
+
+def limpiar_texto(texto):
+    # CORREGIDO: Agregamos '\/' para permitir la barra de la fecha
+    # Elimina emojis, permite tildes, ñ y barras (/)
+    return re.sub(r'[^\w\s\.,:;\-\(\)\/\u00C0-\u00FF]', '', str(texto))
+
+# --- 5. GENERADOR DE IMAGEN (MEJORADO) ---
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
+    # 1. Aseguramos tener las fuentes
+    descargar_fuentes()
+    
     ANCHO = config_datos.get("img_width", 450)
-    BASE_FONT_SIZE = config_datos.get("font_size", 24)
+    FONT_S = config_datos.get("font_size", 24)
+    BG = config_datos.get("bg_color", "#ECE5DD")
+    PALETA = config_datos.get("st_colors", ["#f8d7da"])
+    LH = int(FONT_S * 1.3); GAP = int(FONT_S * 1.5)
     
-    LINE_HEIGHT_NORMAL = int(BASE_FONT_SIZE * 1.3)
-    ESPACIO_BLOQUES = int(BASE_FONT_SIZE * 1.5)
-    
-    COLOR_FONDO = "#ECE5DD" 
+    # 2. Intentamos cargar la fuente descargada (Roboto), si falla, Arial, si falla, Default
     try:
-        font_titulo = ImageFont.truetype("arial.ttf", BASE_FONT_SIZE + 4)
-        font_normal = ImageFont.truetype("arial.ttf", BASE_FONT_SIZE)
-        font_bold = ImageFont.truetype("arialbd.ttf", BASE_FONT_SIZE)
-    except IOError:
-        font_titulo = ImageFont.load_default()
-        font_normal = ImageFont.load_default()
-        font_bold = ImageFont.load_default()
+        f_ti = ImageFont.truetype(FONT_BOLD, FONT_S + 4)
+        f_no = ImageFont.truetype(FONT_REGULAR, FONT_S)
+        f_bd = ImageFont.truetype(FONT_BOLD, FONT_S)
+    except:
+        try:
+            f_ti = ImageFont.truetype("arial.ttf", FONT_S + 4)
+            f_no = ImageFont.truetype("arial.ttf", FONT_S)
+            f_bd = ImageFont.truetype("arialbd.ttf", FONT_S)
+        except:
+            f_ti = f_no = f_bd = ImageFont.load_default()
 
-    img = Image.new('RGB', (ANCHO, 3000), color=COLOR_FONDO)
-    draw = ImageDraw.Draw(img)
-    
-    y = 40
-    margen = 20
-    ancho_util = ANCHO - (margen * 2)
+    img = Image.new('RGB', (ANCHO, 3000), color=BG)
+    d = ImageDraw.Draw(img)
+    y = 40; w_draw = ANCHO - 40
 
-    def dibujar_titulo_centrado(texto, y_pos, fuente, color_bg="#d1e7dd"):
-        palabras = texto.split()
-        lineas = []
-        linea_actual = ""
-        for palabra in palabras:
-            prueba = linea_actual + palabra + " "
-            w_prueba = draw.textbbox((0, 0), prueba, font=fuente)[2]
-            if w_prueba > ancho_util:
-                lineas.append(linea_actual)
-                linea_actual = palabra + " "
-            else:
-                linea_actual = prueba
-        if linea_actual: lineas.append(linea_actual)
-        
-        for linea in lineas:
-            bbox = draw.textbbox((0, 0), linea, font=fuente)
-            w_linea = bbox[2] - bbox[0]
-            draw.rectangle([(ANCHO/2 - w_linea/2 - 10, y_pos), (ANCHO/2 + w_linea/2 + 10, y_pos + LINE_HEIGHT_NORMAL + 5)], fill=color_bg)
-            draw.text((ANCHO/2 - w_linea/2, y_pos), linea, font=fuente, fill="black")
-            y_pos += int(LINE_HEIGHT_NORMAL * 1.4)
+    def draw_centered(txt, y_pos, fnt, bg_col="#d1e7dd"):
+        txt = limpiar_texto(txt) # Limpieza de emojis
+        lines = []; cur = ""
+        for w in txt.split():
+            if d.textbbox((0,0), cur + w + " ", fnt)[2] > w_draw: lines.append(cur); cur = w + " "
+            else: cur += w + " "
+        if cur: lines.append(cur)
+        for l in lines:
+            bb = d.textbbox((0,0), l, fnt); w_l = bb[2] - bb[0]
+            d.rectangle([(ANCHO/2 - w_l/2 - 10, y_pos), (ANCHO/2 + w_l/2 + 10, y_pos + LH + 5)], fill=bg_col)
+            d.text((ANCHO/2 - w_l/2, y_pos), l, font=fnt, fill="black"); y_pos += int(LH * 1.4)
         return y_pos + 10
 
     dias = {0:"lunes",1:"martes",2:"miércoles",3:"jueves",4:"viernes",5:"sábado",6:"domingo"}
     fecha_str = f"{dias[fecha_dt.weekday()]} {fecha_dt.strftime('%d/%m/%y')}"
     
-    y = dibujar_titulo_centrado("Reporte de Estaciones de", y, font_titulo)
-    y = dibujar_titulo_centrado(f"Servicio y Unidades {fecha_str}", y, font_titulo)
+    col_ti = PALETA[2] if len(PALETA)>2 else "#d1e7dd"
+    y = draw_centered("Reporte de Estaciones de", y, f_ti, col_ti)
+    y = draw_centered(f"Servicio y Unidades {fecha_str}", y, f_ti, col_ti)
     
-    icono = obtener_icono_bomba()
-    if icono:
-        nuevo_size = int(BASE_FONT_SIZE * 1.5)
-        icono_res = icono.resize((nuevo_size, nuevo_size))
-        cantidad = 5
-        espacio = 8
-        total_w = (nuevo_size * cantidad) + (espacio * (cantidad - 1))
-        if total_w > ancho_util: cantidad = 3; total_w = (nuevo_size * cantidad) + (espacio * (cantidad - 1))
-        start_x = (ANCHO - total_w) / 2
-        for i in range(cantidad):
-            pos_x = int(start_x + (i * (nuevo_size + espacio)))
-            img.paste(icono_res, (pos_x, y), icono_res)
-        y += int(nuevo_size * 1.5)
+    icon = obtener_icono_bomba()
+    if icon:
+        isz = int(FONT_S * 1.5); icon = icon.resize((isz, isz))
+        cnt = 5; tot_w = (isz*cnt) + (8*(cnt-1))
+        if tot_w > w_draw: cnt = 3; tot_w = (isz*cnt) + (8*(cnt-1))
+        sx = (ANCHO - tot_w)/2
+        for i in range(cnt): img.paste(icon, (int(sx + i*(isz+8)), y), icon)
+        y += int(isz * 1.5)
     else:
         y += LINE_HEIGHT_NORMAL
 
-    colores = ["#f8d7da", "#fff3cd", "#d1e7dd"] 
-    for i, est in enumerate(reporte_lista):
-        color = colores[i % 3]
-        txt_st = f"• Estación {est['nombre']}: {est['horario']}"
-        palabras_titulo = txt_st.split()
-        linea_t = ""
-        for pt in palabras_titulo:
-            prueba_t = linea_t + pt + " "
-            if draw.textbbox((0, 0), prueba_t, font=font_bold)[2] > ancho_util:
-                bbox_bg = draw.textbbox((0, 0), linea_t, font=font_bold)
-                draw.rectangle([(margen, y), (margen + bbox_bg[2] + 10, y + LINE_HEIGHT_NORMAL + 4)], fill=color)
-                draw.text((margen + 5, y + 2), linea_t, font=font_bold, fill="black")
-                y += int(LINE_HEIGHT_NORMAL * 1.1)
-                linea_t = pt + " "
-            else: linea_t = prueba_t
-        if linea_t:
-            bbox_bg = draw.textbbox((0, 0), linea_t, font=font_bold)
-            draw.rectangle([(margen, y), (margen + bbox_bg[2] + 10, y + LINE_HEIGHT_NORMAL + 4)], fill=color)
-            draw.text((margen + 5, y + 2), linea_t, font=font_bold, fill="black")
-            y += int(LINE_HEIGHT_NORMAL * 1.2)
+    for i, st_data in enumerate(reporte_lista):
+        col = PALETA[i % len(PALETA)]
+        # Limpieza de emojis en nombres y horarios
+        nom = limpiar_texto(st_data['nombre']); hor = limpiar_texto(st_data['horario'])
         
-        # --- CAMBIO AQUÍ: Formato con ceros a la izquierda ---
-        # Usamos f-strings: f"{u:02d}" significa "formatea 'u' con al menos 2 dígitos, rellenando con ceros"
-        numeros = " ".join([f"{u:02d}" for u in est['unidades']])
+        lines_t = []; cur_t = ""
+        for w in f"• Estación {nom}: {hor}".split():
+            if d.textbbox((0,0), cur_t + w + " ", f_bd)[2] > w_draw: lines_t.append(cur_t); cur_t = w + " "
+            else: cur_t += w + " "
+        if cur_t: lines_t.append(cur_t)
         
-        palabras = numeros.split()
-        linea = ""
-        for p in palabras:
-            prueba = linea + p + " "
-            if draw.textbbox((0, 0), prueba, font=font_normal)[2] > ancho_util:
-                draw.text((margen, y), linea, font=font_normal, fill="black")
-                y += LINE_HEIGHT_NORMAL 
-                linea = p + " "
-            else: linea = prueba
-        if linea:
-            draw.text((margen, y), linea, font=font_normal, fill="black")
-            y += ESPACIO_BLOQUES
+        for l in lines_t:
+            bb = d.textbbox((0,0), l, f_bd); w_l = bb[2]
+            d.rectangle([(20, y), (20 + w_l + 10, y + LH + 4)], fill=col)
+            d.text((25, y + 2), l, font=f_bd, fill="black"); y += int(LH * 1.2)
+        
+        # Ceros a la izquierda
+        nums = " ".join([f"{u:02d}" for u in st_data['unidades']])
+        lines_n = []; cur_n = ""
+        for w in nums.split():
+            if d.textbbox((0,0), cur_n + w + " ", f_no)[2] > w_draw: lines_n.append(cur_n); cur_n = w + " "
+            else: cur_n += w + " "
+        if cur_n: lines_n.append(cur_n)
+        for l in lines_n: d.text((20, y), l, font=f_no, fill="black"); y += LH
+        y += GAP
 
-    txt_ran = "• Rango de unidades"
-    bbox_r = draw.textbbox((0, 0), txt_ran, font=font_bold)
-    draw.rectangle([(margen, y), (margen + bbox_r[2] - bbox_r[0] + 10, y + LINE_HEIGHT_NORMAL + 4)], fill="#cff4fc") 
-    draw.text((margen + 5, y + 2), txt_ran, font=font_bold, fill="black")
-    y += int(LINE_HEIGHT_NORMAL * 1.2)
+    bb_r = d.textbbox((0,0), "• Rango de unidades", f_bd)
+    d.rectangle([(20, y), (20 + bb_r[2] + 10, y + LH + 4)], fill="#cff4fc")
+    d.text((25, y + 2), "• Rango de unidades", font=f_bd, fill="black"); y += int(LH * 1.2)
     
-    palabras_r = rango_txt.split()
-    linea_r = ""
-    for pr in palabras_r:
-        prueba_r = linea_r + pr + " "
-        if draw.textbbox((0, 0), prueba_r, font=font_normal)[2] > ancho_util:
-            draw.text((margen, y), linea_r, font=font_normal, fill="black")
-            y += LINE_HEIGHT_NORMAL
-            linea_r = pr + " "
-        else: linea_r = prueba_r
-    if linea_r:
-        draw.text((margen, y), linea_r, font=font_normal, fill="black")
-        y += ESPACIO_BLOQUES
+    ran_clean = limpiar_texto(rango_txt)
+    lines_r = []; cur_r = ""
+    for w in ran_clean.split():
+        if d.textbbox((0,0), cur_r + w + " ", f_no)[2] > w_draw: lines_r.append(cur_r); cur_r = w + " "
+        else: cur_r += w + " "
+    if cur_r: lines_r.append(cur_r)
+    for l in lines_r: d.text((20, y), l, font=f_no, fill="black"); y += LH
+    y += GAP
 
-    img_final = img.crop((0, 0, ANCHO, y + 20))
-    buffer = BytesIO()
-    img_final.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer
+    out = img.crop((0, 0, ANCHO, y + 20))
+    buf = BytesIO(); out.save(buf, "PNG"); buf.seek(0)
+    return buf
 
-# =========================================================
-# LÓGICA PRINCIPAL
-# =========================================================
-
+# ================= MAIN =================
 if verificar_login():
     with st.sidebar:
         st.success("Conectado")
@@ -295,22 +318,44 @@ if verificar_login():
     # --- CONFIGURACIÓN ---
     with tab_config:
         st.header("⚙️ Ajustes")
-        st.subheader("1. Rangos")
-        c1, c2 = st.columns(2)
-        nuevo_min = c1.number_input("Inicial", value=datos.get("rango_min", 1), min_value=1)
-        nuevo_max = c2.number_input("Final", value=datos.get("rango_max", 500), min_value=1)
         
-        st.divider()
-        st.subheader("2. Imagen")
-        c3, c4 = st.columns(2)
-        nuevo_ancho = c3.slider("Ancho (px)", 300, 800, value=datos.get("img_width", 450))
-        nueva_fuente = c4.slider("Tamaño Letra", 14, 40, value=datos.get("font_size", 24))
+        with st.expander("1. Rangos y Dimensiones", expanded=False):
+            c1, c2 = st.columns(2)
+            nuevo_min = c1.number_input("Inicial", value=datos.get("rango_min", 1), min_value=1)
+            nuevo_max = c2.number_input("Final", value=datos.get("rango_max", 500), min_value=1)
+            st.divider()
+            c3, c4 = st.columns(2)
+            nuevo_ancho = c3.slider("Ancho (px)", 300, 800, value=datos.get("img_width", 450))
+            nueva_fuente = c4.slider("Tamaño Letra", 14, 40, value=datos.get("font_size", 24))
+
+        with st.expander("2. Personalizar Colores 🎨", expanded=True):
+            st.caption("Fondo y colores de estaciones:")
+            col_bg, col_preview = st.columns([1, 3])
+            nuevo_bg = col_bg.color_picker("Color de Fondo", value=datos.get("bg_color", "#ECE5DD"))
+            col_preview.markdown(f'<div style="background-color:{nuevo_bg}; padding: 10px; border-radius: 5px; text-align: center;">Vista Previa</div>', unsafe_allow_html=True)
+            
+            st.divider()
+            st.write("Paleta de Estaciones:")
+            current_st_colors = datos.get("st_colors", ["#f8d7da"]*6)
+            nuevos_st_colors = []
+            
+            cols_c1 = st.columns(3)
+            for i in range(3):
+                c = cols_c1[i].color_picker(f"Color {i+1}", value=current_st_colors[i], key=f"cp_{i}")
+                nuevos_st_colors.append(c)
+                
+            cols_c2 = st.columns(3)
+            for i in range(3, 6):
+                c = cols_c2[i-3].color_picker(f"Color {i+1}", value=current_st_colors[i], key=f"cp_{i}")
+                nuevos_st_colors.append(c)
         
         if st.button("💾 Guardar Configuración", type="primary"):
             datos["rango_min"] = nuevo_min
             datos["rango_max"] = nuevo_max
             datos["img_width"] = nuevo_ancho
             datos["font_size"] = nueva_fuente
+            datos["bg_color"] = nuevo_bg
+            datos["st_colors"] = nuevos_st_colors
             guardar_datos(datos)
             st.success("Guardado.")
             st.rerun()
@@ -360,7 +405,7 @@ if verificar_login():
                     st.rerun()
         else: st.success("Flota operativa.")
 
-    # --- ASIGNACIÓN ---
+    # --- ASIGNACIÓN (ESTABLE) ---
     with tab_asignacion:
         if 'editando_idx' not in st.session_state: st.session_state.editando_idx = None
         
@@ -418,8 +463,11 @@ if verificar_login():
                     
                     unidades_lista = est['unidades']
                     
+                    # --- MODO EDICIÓN ---
                     if st.session_state.editando_idx == i:
                         st.info("Editando lista de unidades:")
+                        
+                        # 1. BORRAR
                         if unidades_lista:
                             st.caption("Toca para eliminar:")
                             cols = st.columns(4) 
@@ -428,15 +476,19 @@ if verificar_login():
                                     est['unidades'].remove(u)
                                     st.rerun()
                         else: st.warning("Lista vacía.")
+                        
                         st.divider()
                         
+                        # 2. AGREGAR
                         otros_asignados = []
                         for idx_req, req in enumerate(st.session_state.reporte_diario):
-                            if idx_req != i: otros_asignados.extend(req['unidades'])
+                            if idx_req != i:
+                                otros_asignados.extend(req['unidades'])
                         candidatas = [u for u in unidades_op if u not in otros_asignados and u not in unidades_lista]
                         
                         col_new1, col_new2 = st.columns([3, 1], vertical_alignment="bottom")
                         nuevas_agregar = col_new1.multiselect("Agregar extra:", candidatas, key=f"add_u_{i}", placeholder="Selecciona...")
+                        
                         if col_new2.button("➕ Sumar", key=f"btn_add_{i}", use_container_width=True):
                             if nuevas_agregar:
                                 est['unidades'].extend(nuevas_agregar)
@@ -448,12 +500,13 @@ if verificar_login():
                             st.session_state.editando_idx = None
                             st.rerun()
                             
+                    # --- MODO VISTA ---
                     else:
                         if unidades_lista:
                             estilo_flex = "display: flex; flex-wrap: wrap; gap: 8px; align-items: center;"
                             estilo_ficha = "background-color: #f0f2f6; color: #31333F; padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 15px; border: 1px solid #d0d0d0; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
                             html_badges = f'<div style="{estilo_flex}">'
-                            for u in unidades_lista: html_badges += f'<div style="{estilo_ficha}">🚍 {u}</div>'
+                            for u in unidades_lista: html_badges += f'<div style="{estilo_ficha}">🚍 {u:02d}</div>'
                             html_badges += "</div>"
                             st.markdown(html_badges, unsafe_allow_html=True)
                         else: st.caption("Vacío")
