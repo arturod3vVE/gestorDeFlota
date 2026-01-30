@@ -24,8 +24,8 @@ def boton_whatsapp_directo(img_bytes, nombre_archivo):
             body {{ margin: 0; padding: 0; background-color: transparent; }}
             .btn-wa {{
                 display: flex; align-items: center; justify-content: center;
-                width: 100%; height: 2.5rem; /* Altura exacta de botones Streamlit */
-                background-color: #007BFF; /* Azul Sistema */
+                width: 100%; height: 2.5rem;
+                background-color: #007BFF;
                 color: white;
                 font-weight: 600; border: 1px solid rgba(0,0,0,0.1);
                 border-radius: 0.5rem; cursor: pointer;
@@ -65,7 +65,6 @@ def boton_whatsapp_directo(img_bytes, nombre_archivo):
         </body>
     </html>
     """
-    # Altura ajustada para alineación perfecta
     components.html(html_code, height=42)
 
 # 2. Control de Acceso
@@ -221,19 +220,69 @@ if is_authenticated:
                         if st.button("🗑️ Borrar", key=f"del_rep_{i}", type="primary", use_container_width=True):
                              st.session_state.reporte_diario.pop(i); st.rerun()
                     
+                    # --- MODO EDICIÓN ---
                     if st.session_state.ed_idx == i:
                         st.info("✏️ Editando unidades...")
-                        to_rm = st.multiselect("Quitar:", e['unidades'], key=f"md{i}")
-                        if st.button("Quitar selección", key=f"brm{i}") and to_rm:
+                        
+                        # Capturamos las selecciones en variables
+                        to_rm = st.multiselect("Quitar unidades de esta estación:", e['unidades'], key=f"md{i}")
+                        # Botón manual por si acaso
+                        if st.button("Quitar seleccionadas", key=f"brm{i}") and to_rm:
                             for x in to_rm: e['unidades'].remove(x)
                             st.rerun()
+                        
+                        st.markdown("---")
+                        
+                        st.write("**Agregar más unidades:**")
                         others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
                         cands = [u for u in op if u not in others and u not in e['unidades']]
+                        
+                        # Capturamos selección de agregar
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
-                        if st.button("Agregar selección", key=f"bad{i}") and to_add:
+                        # Botón manual por si acaso
+                        if st.button("Agregar seleccionadas", key=f"bad{i}") and to_add:
                             e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
-                        if st.button("✅ Finalizar Edición", key=f"ok{i}", use_container_width=True):
-                            st.session_state.ed_idx = None; st.rerun()
+                            
+                        st.markdown("---")
+                        
+                        # --- BOTONERÍA INTELIGENTE ---
+                        # Detectamos si hay cambios pendientes (usuario seleccionó pero no aplicó)
+                        cambios_pendientes = (len(to_rm) > 0) or (len(to_add) > 0)
+                        
+                        if cambios_pendientes:
+                            st.warning(f"⚠️ Tienes cambios sin guardar: (Quitar: {len(to_rm)} | Agregar: {len(to_add)})")
+                            
+                            col_conf, col_disc = st.columns(2)
+                            
+                            # Opción A: Aplicar todo automáticamente y salir
+                            with col_conf:
+                                if st.button("💾 Guardar cambios y Salir", key=f"smart_save_{i}", type="primary", use_container_width=True):
+                                    # 1. Aplicamos Quitar
+                                    if to_rm:
+                                        for x in to_rm: 
+                                            if x in e['unidades']: e['unidades'].remove(x)
+                                    # 2. Aplicamos Agregar
+                                    if to_add:
+                                        e['unidades'].extend(to_add)
+                                    
+                                    # 3. Ordenamos y Salimos
+                                    e['unidades'].sort()
+                                    st.session_state.ed_idx = None
+                                    st.toast("✅ Cambios aplicados correctamente")
+                                    st.rerun()
+                            
+                            # Opción B: Salir sin hacer nada
+                            with col_disc:
+                                if st.button("🗑️ Descartar y Salir", key=f"smart_disc_{i}", use_container_width=True):
+                                    st.session_state.ed_idx = None
+                                    st.rerun()
+                        
+                        else:
+                            # Si NO hay cambios pendientes, mostramos el botón normal
+                            if st.button("✅ Finalizar Edición", key=f"ok_{i}", type="primary", use_container_width=True):
+                                st.session_state.ed_idx = None; st.rerun()
+                            
+                    # --- MODO VISUALIZACIÓN ---
                     else:
                         st.markdown(f"<div style='display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;margin-bottom:10px;'>{''.join([f'<span style=background:#eee;padding:4px;border-radius:4px;border:1px solid #ccc;font-weight:bold;>{u:02d}</span>' for u in e['unidades']])}</div>", unsafe_allow_html=True)
             
@@ -241,28 +290,18 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            # --- GENERACIÓN + AUTOGUARDADO ---
-            if st.button("📸 Generar Imagen", type="primary", use_container_width=True):
-                # 1. Generar la foto
+            if 'img_mem' not in st.session_state or st.button("🔄 Generar Imagen"):
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
-                # 2. AUTOGUARDADO en Historial (Mejora la UX)
-                if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual):
-                    st.toast("✅ Reporte guardado automáticamente en el historial")
             
-            # Si la imagen está lista, mostramos los botones directos
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
                 
                 nombre_img = f"Reporte_{fr.strftime('%d-%m-%Y')}.png"
-                
-                # Columnas para acciones directas
                 c1, c2 = st.columns(2)
                 
-                # Botón 1: WhatsApp (JS Directo)
                 with c1:
                     boton_whatsapp_directo(st.session_state.img_mem, nombre_img)
                 
-                # Botón 2: Descargar
                 with c2:
                     st.download_button("📥 Descargar", st.session_state.img_mem, nombre_img, "image/png", use_container_width=True)
 
