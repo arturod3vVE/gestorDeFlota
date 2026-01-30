@@ -92,7 +92,7 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
     GAP = int(FONT_S * 1.5)
     
     # Cargamos fuentes usando la función segura
-    f_ti = cargar_fuente_segura("bold", FONT_S + 4) # Título
+    f_ti = cargar_fuente_segura("bold", FONT_S + 2) # Título
     f_bd = cargar_fuente_segura("bold", FONT_S)     # Negrita
     f_no = cargar_fuente_segura("regular", FONT_S)  # Normal
 
