@@ -4,7 +4,7 @@ import qrcode
 import time
 from io import BytesIO
 from datetime import datetime
-import extra_streamlit_components as stx # IMPORTANTE: Librería de Cookies
+import extra_streamlit_components as stx
 from database import validar_usuario_db, registrar_usuario_con_totp, restablecer_con_totp
 
 def inyectar_css():
@@ -15,8 +15,8 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
-# --- FUNCIÓN PARA OBTENER EL GESTOR DE COOKIES ---
-@st.cache_resource(experimental_allow_widgets=True)
+# --- CORRECCIÓN AQUÍ: Quitamos el parámetro obsoleto ---
+@st.cache_resource
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -28,7 +28,6 @@ def verificar_login():
     cookie_manager = get_cookie_manager()
     
     # Intentamos leer la cookie "gestor_flota_user"
-    # A veces tarda un microsegundo en cargar, por eso el sleep si es necesario
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
 
     # 2. Inicializamos variables de sesión si no existen
