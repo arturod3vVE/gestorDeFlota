@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, timedelta # IMPORTANTE: timedelta para matar la cookie
+from datetime import datetime, timedelta 
 import urllib.parse
 import base64 
 import time 
@@ -14,35 +14,33 @@ from utils import inyectar_css, verificar_login, selector_de_rangos, obtener_lis
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 inyectar_css()
 
-# --- FUNCIÓN ESPECIAL: COMPARTIR NATIVO ---
-def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
+# --- FUNCIÓN ESPECIAL: BOTÓN WHATSAPP DIRECTO ---
+def boton_whatsapp_directo(img_bytes, nombre_archivo):
     b64 = base64.b64encode(img_bytes.getvalue()).decode()
     html_code = f"""
     <html>
         <head>
         <style>
             body {{ margin: 0; padding: 0; background-color: transparent; }}
-            .btn-share {{
+            .btn-wa {{
                 display: flex; align-items: center; justify-content: center;
-                width: 100%; height: 2.5rem;
-                background-color: #007BFF; color: white;
+                width: 100%; height: 2.5rem; /* Altura exacta de botones Streamlit */
+                background-color: #007BFF; /* Azul Sistema */
+                color: white;
                 font-weight: 600; border: 1px solid rgba(0,0,0,0.1);
                 border-radius: 0.5rem; cursor: pointer;
                 font-family: "Source Sans Pro", sans-serif;
                 font-size: 1rem; text-decoration: none;
                 box-sizing: border-box;
-                animation: popIn 0.3s ease-out;
+                white-space: nowrap;
             }}
-            .btn-share:hover {{ background-color: #0056b3; }}
-            @keyframes popIn {{
-                0% {{ transform: scale(0.9); opacity: 0; }}
-                100% {{ transform: scale(1); opacity: 1; }}
-            }}
+            .btn-wa:hover {{ background-color: #0056b3; }}
+            .btn-wa:active {{ transform: scale(0.98); }}
         </style>
         </head>
         <body>
-            <button class="btn-share" onclick="compartir()">
-                🚀 Compartir
+            <button class="btn-wa" onclick="compartir()">
+                📲 WhatsApp
             </button>
             <script>
             async function compartir() {{
@@ -50,23 +48,25 @@ def accion_compartir_nativa(img_bytes, nombre_archivo="reporte.png"):
                 const res = await fetch("data:image/png;base64," + b64);
                 const blob = await res.blob();
                 const file = new File([blob], "{nombre_archivo}", {{ type: "image/png" }});
+                
                 if (navigator.share && navigator.canShare({{ files: [file] }})) {{
                     try {{
                         await navigator.share({{
                             files: [file],
                             title: 'Reporte de Flota',
-                            text: 'Reporte de asignación.'
+                            text: 'Reporte: {nombre_archivo}'
                         }});
                     }} catch (err) {{ console.log(err); }}
                 }} else {{
-                    alert('Tu navegador no soporta compartir imágenes directo.');
+                    alert('Tu navegador no soporta compartir archivos nativos. Usa el botón Descargar.');
                 }}
             }}
             </script>
         </body>
     </html>
     """
-    components.html(html_code, height=45)
+    # Altura ajustada para alineación perfecta
+    components.html(html_code, height=42)
 
 # 2. Control de Acceso
 is_authenticated, cookie_manager = verificar_login()
@@ -84,7 +84,6 @@ if is_authenticated:
     with st.sidebar:
         st.header("Panel de Control")
         st.info(f"👤 **{usuario_actual.capitalize()}**")
-        
         st.divider()
         st.write("📍 **Navegación**")
         
@@ -98,35 +97,23 @@ if is_authenticated:
         st.button("⚙️ Configuración", key="nav_conf", type=estilo_conf, use_container_width=True, on_click=cambiar_vista, args=("Configuracion",))
         
         st.divider()
-        
         if st.button("🔄 Recargar Datos", use_container_width=True, help="Fuerza la recarga desde la base de datos"):
             if 'datos_app' in st.session_state: del st.session_state['datos_app']
             if 'reporte_diario' in st.session_state: del st.session_state['reporte_diario']
             st.toast("☁️ Datos actualizados")
             st.rerun()
-            
         st.write("") 
         
-        # --- LÓGICA DE CIERRE DE SESIÓN NUCLEAR ---
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                # 1. "Matamos" la cookie poniéndole fecha de expiración en el PASADO (Ayer)
-                # Esto obliga al navegador a descartarla sí o sí.
                 cookie_manager.set("gestor_flota_user", "", expires_at=datetime.now() - timedelta(days=1))
-                
-                # 2. Intento de borrado estándar (Doble seguridad)
                 try: cookie_manager.delete("gestor_flota_user")
                 except: pass
-                
-                # 3. Limpieza total de RAM de Python
                 st.session_state.clear()
-                
-                # 4. Bandera para que utils.py sepa que no debe auto-loguear
                 st.session_state["logout_pending"] = True
-                
                 st.warning("Cerrando sesión...")
-                time.sleep(1.5) # Espera técnica para que el navegador procese la cookie muerta
+                time.sleep(1.5) 
                 st.rerun()
     
     # --- LÓGICA DE DATOS ---
@@ -254,23 +241,30 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            if 'img_mem' not in st.session_state or st.button("🔄 Generar Imagen"):
+            # --- GENERACIÓN + AUTOGUARDADO ---
+            if st.button("📸 Generar Imagen", type="primary", use_container_width=True):
+                # 1. Generar la foto
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
+                # 2. AUTOGUARDADO en Historial (Mejora la UX)
+                if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual):
+                    st.toast("✅ Reporte guardado automáticamente en el historial")
             
+            # Si la imagen está lista, mostramos los botones directos
             if 'img_mem' in st.session_state:
                 st.image(st.session_state.img_mem, caption="Vista Previa", width=350)
+                
+                nombre_img = f"Reporte_{fr.strftime('%d-%m-%Y')}.png"
+                
+                # Columnas para acciones directas
                 c1, c2 = st.columns(2)
                 
+                # Botón 1: WhatsApp (JS Directo)
                 with c1:
-                    if st.button("💾 Guardar", type="primary", use_container_width=True):
-                        if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual): 
-                            st.success("✅ Guardado en base de datos")
+                    boton_whatsapp_directo(st.session_state.img_mem, nombre_img)
                 
+                # Botón 2: Descargar
                 with c2:
-                    if st.button("📲 Compartir", use_container_width=True):
-                        guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual)
-                        st.toast("✅ Guardado automático")
-                        accion_compartir_nativa(st.session_state.img_mem, "Reporte.png")
+                    st.download_button("📥 Descargar", st.session_state.img_mem, nombre_img, "image/png", use_container_width=True)
 
             st.markdown("---")
             with st.expander("Opciones de Texto"):
