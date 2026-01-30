@@ -2,49 +2,69 @@ import streamlit as st
 from datetime import datetime
 
 # IMPORTACIONES
-from database import cargar_datos_db, guardar_datos_db, recuperar_historial_por_fecha
+from database import cargar_datos_db, guardar_datos_db, guardar_historial_db, recuperar_historial_por_fecha
 from image_gen import generar_imagen_en_memoria
 from utils import inyectar_css, verificar_login, selector_de_rangos, obtener_lista_horas_puntuales
 
-# 1. Configuración
+# 1. Configuración de la página (SIEMPRE PRIMERO)
 st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
 inyectar_css()
 
-# 2. Carga de Datos de Configuración
-if 'datos_app' not in st.session_state:
-    with st.spinner("Cargando sistema..."):
-        st.session_state.datos_app = cargar_datos_db()
-
-# --- NUEVO: CARGA AUTOMÁTICA AL INICIAR ---
-# Esto revisa si es la primera vez que entras. Si es así, busca si ya guardaste algo hoy.
-if 'reporte_diario' not in st.session_state:
-    hoy = datetime.now()
-    datos_hoy = recuperar_historial_por_fecha(hoy)
-    if datos_hoy:
-        st.session_state.reporte_diario = datos_hoy
-        # (Opcional) Un pequeño aviso visual
-        # st.toast(f"📅 Se recuperaron {len(datos_hoy)} registros de hoy automáticamente.")
-    else:
-        st.session_state.reporte_diario = []
-
-def guardar(): 
-    guardar_datos_db(st.session_state.datos_app)
-
-# 3. App Principal
+# 2. Control de Acceso
+# Si verificar_login() devuelve True, significa que el usuario ya se autenticó correctamente
 if verificar_login():
+    
+    # --- A. BARRA LATERAL (SIDEBAR) ---
+    # Aquí es donde debe estar el botón de salir para que siempre se vea
+    usuario_actual = st.session_state.usuario_actual
+    
     with st.sidebar:
-        st.success("Conectado")
-        if st.button("Salir", type="secondary"):
+        st.header("Panel de Control")
+        st.success(f"👤 Hola, **{usuario_actual.capitalize()}**")
+        
+        st.divider()
+        
+        # BOTÓN DE CERRAR SESIÓN
+        if st.button("🚪 Cerrar Sesión", type="secondary", use_container_width=True):
+            # Limpiamos las variables de sesión críticas
             st.session_state.autenticado = False
+            st.session_state.usuario_actual = None
+            
+            # Limpiamos los datos cargados para seguridad
+            if 'datos_app' in st.session_state: del st.session_state['datos_app']
+            if 'reporte_diario' in st.session_state: del st.session_state['reporte_diario']
+            
+            # Recargamos la página para volver al Login
             st.rerun()
     
+    # --- B. CARGA DE DATOS (Solo si está logueado) ---
+    if 'datos_app' not in st.session_state:
+        with st.spinner(f"Cargando datos de {usuario_actual}..."):
+            st.session_state.datos_app = cargar_datos_db(usuario_actual)
+
+    # Carga automática del historial de HOY (si existe)
+    if 'reporte_diario' not in st.session_state:
+        hoy = datetime.now()
+        datos_hoy = recuperar_historial_por_fecha(hoy, usuario_actual)
+        if datos_hoy:
+            st.session_state.reporte_diario = datos_hoy
+            # st.toast(f"📅 Se cargaron {len(datos_hoy)} registros de hoy.")
+        else:
+            st.session_state.reporte_diario = []
+
+    # Función auxiliar para guardar (usando el usuario actual)
+    def guardar(): 
+        guardar_datos_db(st.session_state.datos_app, usuario_actual)
+
+    # --- C. INTERFAZ PRINCIPAL (TABS) ---
     tab_asig, tab_taller, tab_conf = st.tabs(["⛽ Asignación", "🔧 Taller", "⚙️ Configuración"])
     d = st.session_state.datos_app
     
+    # Generamos la lista total de unidades
     all_u = list(range(d.get("rango_min", 1), d.get("rango_max", 500) + 1))
     LISTA_HORAS = obtener_lista_horas_puntuales()
 
-    # --- PESTAÑA CONFIGURACIÓN ---
+    # ---------------- PESTAÑA CONFIGURACIÓN ----------------
     with tab_conf:
         st.header("⚙️ Ajustes")
         with st.expander("1. Rangos y Dimensiones", expanded=False):
@@ -101,7 +121,7 @@ if verificar_login():
                 guardar()
                 st.rerun()
 
-    # --- PESTAÑA TALLER ---
+    # ---------------- PESTAÑA TALLER ----------------
     with tab_taller:
         st.header("🔧 Taller")
         avs = d.get("averiadas", [])
@@ -128,14 +148,15 @@ if verificar_login():
                     st.rerun()
         else: st.success("Flota operativa.")
 
-    # --- PESTAÑA ASIGNACIÓN ---
+    # ---------------- PESTAÑA ASIGNACIÓN ----------------
     with tab_asig:
         if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
         
-        # 1. Función automática para cambio de fecha manual
+        # Callback para cambio de fecha
         def al_cambiar_fecha():
             nueva_fecha = st.session_state.key_fecha_rep
-            datos = recuperar_historial_por_fecha(nueva_fecha)
+            # IMPORTANTE: Pasamos el usuario_actual para recuperar SU historial
+            datos = recuperar_historial_por_fecha(nueva_fecha, usuario_actual)
             if datos:
                 st.session_state.reporte_diario = datos
                 st.toast(f"✅ Se cargaron {len(datos)} registros.")
@@ -143,7 +164,6 @@ if verificar_login():
                 st.session_state.reporte_diario = []
                 st.toast("ℹ️ No hay historial para esta fecha.")
 
-        # 2. Selector de fecha
         c_f1, c_f2 = st.columns([1, 2], vertical_alignment="center")
         f_rep = c_f1.date_input(
             "📅 Fecha de Reporte", 
@@ -152,16 +172,12 @@ if verificar_login():
             on_change=al_cambiar_fecha
         )
         c_f2.info(f"Mostrando datos del: **{f_rep.strftime('%d/%m/%Y')}**")
-        
         st.divider()
         
         avs = d.get("averiadas", [])
         op = [u for u in all_u if u not in avs]
         
-        # Como ya cargamos reporte_diario al inicio, esto solo asegura que exista la variable
-        # (aunque el bloque del principio ya lo hizo)
         if 'reporte_diario' not in st.session_state: st.session_state.reporte_diario = []
-        
         ya_as = [u for e in st.session_state.reporte_diario for u in e['unidades']]
         disp = [u for u in op if u not in ya_as]
 
@@ -269,17 +285,16 @@ if verificar_login():
                 st.image(st.session_state.img_mem, width=300)
                 st.download_button("📥 Descargar", st.session_state.img_mem, "Reporte.png", "image/png", use_container_width=True)
 
-            # --- BOTÓN PARA GUARDAR HISTORIAL ---
+            # BOTÓN DE GUARDAR HISTORIAL
             st.divider()
             st.caption("Base de Datos:")
-            # Importante: pasamos la función guardar_historial_db desde database
-            from database import guardar_historial_db 
             if st.button("💾 Guardar en Historial", use_container_width=True):
                 if st.session_state.reporte_diario:
                     with st.spinner("Guardando en la nube..."):
-                        exito = guardar_historial_db(f_rep, st.session_state.reporte_diario)
+                        # Pasamos USER al guardar para que vaya a la hoja correcta
+                        exito = guardar_historial_db(f_rep, st.session_state.reporte_diario, usuario_actual)
                         if exito:
-                            st.success("¡Datos guardados en la hoja 'Historial' correctamente!")
+                            st.success(f"¡Datos guardados en historial de {usuario_actual}!")
                         else:
                             st.error("Error al conectar con Google Sheets.")
                 else:

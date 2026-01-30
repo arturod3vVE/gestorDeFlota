@@ -1,44 +1,126 @@
 import streamlit as st
+import pyotp
+import qrcode
+from io import BytesIO
+from database import validar_usuario_db, registrar_usuario_con_totp, restablecer_con_totp
 from datetime import datetime
 
 def inyectar_css():
     st.markdown("""
         <style>
+            /* Ocultamos el menú de hamburguesa (derecha) */
             #MainMenu {visibility: hidden;}
-            header {visibility: hidden;}
+            
+            /* Ocultamos el pie de página "Made with Streamlit" */
             footer {visibility: hidden;}
-            .stApp { margin-top: -60px; }
+            
+            /* --- LÍNEAS COMENTADAS (ELIMINADAS) PARA QUE SE VEA EL SIDEBAR --- */
+            /* header {visibility: hidden;} */
+            /* .stApp { margin-top: -60px; } */
+            
         </style>
     """, unsafe_allow_html=True)
 
 def verificar_login():
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
-    if not st.session_state.autenticado:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.title("🔒 Acceso")
+    if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
+
+    if st.session_state.autenticado: return True
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("Gestor de Flota ⛽")
+        tab_login, tab_registro, tab_recuperar = st.tabs(["🔒 Entrar", "📲 Registro 2FA", "🔄 Recuperar"])
+        
+        # --- 1. LOGIN ---
+        with tab_login:
             with st.form("login_form"):
-                pwd = st.text_input("Contraseña", type="password")
-                submitted = st.form_submit_button("Entrar", type="primary", use_container_width=True)
-            
-            if submitted:
-                # Accedemos a los datos cargados en session_state desde main
-                if pwd == st.session_state.datos_app.get("password", "admin"):
+                user = st.text_input("Usuario", key="l_u")
+                pwd = st.text_input("Contraseña", type="password", key="l_p")
+                btn_in = st.form_submit_button("Iniciar Sesión", type="primary", use_container_width=True)
+            if btn_in:
+                if validar_usuario_db(user, pwd):
                     st.session_state.autenticado = True
+                    st.session_state.usuario_actual = user.lower().strip()
                     st.rerun()
                 else:
-                    st.error("Contraseña incorrecta")
-        return False
-    return True
+                    st.error("Credenciales incorrectas.")
 
-# --- MODIFICACIÓN AQUÍ: Horas limpias (9 AM, 10 AM...) ---
+        # --- 2. REGISTRO CON CÓDIGO QR ---
+        with tab_registro:
+            st.caption("1. Crea tu usuario y contraseña.")
+            reg_u = st.text_input("Nuevo Usuario", key="r_u")
+            reg_p = st.text_input("Nueva Contraseña", type="password", key="r_p")
+            
+            # Generamos un secreto temporal en session_state si no existe
+            if 'temp_totp_secret' not in st.session_state:
+                st.session_state.temp_totp_secret = pyotp.random_base32()
+            
+            st.divider()
+            st.caption("2. Escanea este código con Google Authenticator:")
+            
+            # Generar QR
+            secret = st.session_state.temp_totp_secret
+            # URI para que la app entienda (NombreApp:Usuario)
+            uri = pyotp.totp.TOTP(secret).provisioning_uri(name=reg_u or "Usuario", issuer_name="GestorFlota")
+            
+            # Crear imagen QR
+            qr = qrcode.make(uri)
+            img_bytes = BytesIO()
+            qr.save(img_bytes, format='PNG')
+            st.image(img_bytes.getvalue(), width=200)
+            
+            st.caption(f"O escribe la clave manual: `{secret}`")
+            st.divider()
+            
+            st.caption("3. Confirma el código que te da la App:")
+            code_check = st.text_input("Código de 6 dígitos", key="r_code")
+            
+            if st.button("Finalizar Registro", type="primary", use_container_width=True):
+                # LIMPIEZA: Quitamos espacios en blanco por si el usuario escribe "123 456"
+                code_limpio = code_check.replace(" ", "").strip()
+
+                # VALIDACIÓN: Creamos el objeto TOTP
+                totp_check = pyotp.TOTP(secret)
+                
+                # --- AQUÍ ESTÁ EL TRUCO ---
+                # valid_window=1 permite un margen de error de 30 segundos
+                # (acepta el código anterior, el actual y el siguiente)
+                if totp_check.verify(code_limpio, valid_window=1):
+                    ok, msg = registrar_usuario_con_totp(reg_u, reg_p, secret)
+                    if ok:
+                        st.success("✅ Registro Exitoso!")
+                        del st.session_state['temp_totp_secret']
+                        st.session_state.autenticado = True
+                        st.session_state.usuario_actual = reg_u.lower().strip()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error(f"❌ El código es incorrecto. Asegúrate de que la hora de tu celular esté en 'Automática'.")
+
+        # --- 3. RECUPERAR CON AUTHENTICATOR ---
+        with tab_recuperar:
+            st.caption("Usa tu App Autenticadora para cambiar la contraseña.")
+            with st.form("rec_form"):
+                rec_u = st.text_input("Usuario", key="rec_u")
+                rec_code = st.text_input("Código de Google Auth (6 dígitos)", key="rec_c")
+                rec_new_p = st.text_input("Nueva Contraseña", type="password", key="rec_np")
+                btn_rec = st.form_submit_button("Restablecer", use_container_width=True)
+            
+            if btn_rec:
+                ok, msg = restablecer_con_totp(rec_u, rec_code, rec_new_p)
+                if ok:
+                    st.success(msg)
+                    st.info("Ahora puedes iniciar sesión en la pestaña 1.")
+                else:
+                    st.error(msg)
+
+    return False
+
 def obtener_lista_horas_puntuales():
     horas = []
-    # Generamos las 24 horas del día
     for h in range(24):
-        # %I: Hora 12h (01-12)
-        # %p: AM/PM
-        # lstrip('0'): Quita el cero inicial (09 AM -> 9 AM)
         t = datetime(2000, 1, 1, h, 0).strftime("%I %p").lstrip('0')
         horas.append(t)
     return horas
