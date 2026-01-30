@@ -15,37 +15,86 @@ def inyectar_css():
         </style>
     """, unsafe_allow_html=True)
 
-# --- 1. FUNCIÓN PARA OBTENER EL GESTOR (CON KEY FIJA) ---
 def get_cookie_manager():
-    # IMPORTANTE: La 'key' fija evita que se reinicie al dar F5
     return stx.CookieManager(key="gestor_cookies_flota")
+
+# --- FUNCIÓN DE LOADER ANIMADO ---
+def mostrar_bus_loading():
+    """Muestra una animación CSS de un autobús viajando."""
+    loading_html = """
+    <style>
+        .loader-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            width: 100%;
+            overflow: hidden;
+            background-color: transparent;
+        }
+        .bus-wrapper {
+            font-size: 60px;
+            animation: drive 2.5s infinite linear;
+            position: relative;
+        }
+        .loading-text {
+            margin-top: 10px;
+            font-family: sans-serif;
+            color: #666;
+            font-weight: bold;
+            font-size: 16px;
+            animation: blink 1.5s infinite;
+        }
+        @keyframes drive {
+            0% { transform: translateX(-150%); }
+            100% { transform: translateX(150%); }
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+    <div class="loader-container">
+        <div class="bus-wrapper">🚌💨</div>
+        <div class="loading-text">Cargando flota...</div>
+    </div>
+    """
+    return st.markdown(loading_html, unsafe_allow_html=True)
 
 def verificar_login():
     """
     Retorna una tupla: (Estado_Autenticacion (bool), Objeto_Cookie_Manager)
     """
-    cookie_manager = get_cookie_manager()
+    # 1. Creamos un placeholder para la animación
+    loader_placeholder = st.empty()
     
-    # Intentamos leer la cookie
+    # 2. Mostramos el autobús MIENTRAS cargamos el manager
+    # (Solo si no estamos autenticados aún, para no molestar en cada interacción pequeña)
+    if 'autenticado' not in st.session_state or not st.session_state.autenticado:
+        with loader_placeholder:
+            mostrar_bus_loading()
+    
+    # 3. Inicializamos el gestor y buscamos la cookie
+    cookie_manager = get_cookie_manager()
     cookie_user = cookie_manager.get(cookie="gestor_flota_user")
+    
+    # Una vez cargado, limpiamos la animación inmediatamente
+    loader_placeholder.empty()
 
-    # Inicializamos variables de sesión
+    # Inicializamos variables
     if 'autenticado' not in st.session_state: st.session_state.autenticado = False
     if 'usuario_actual' not in st.session_state: st.session_state.usuario_actual = None
 
-    # --- LÓGICA DE PERSISTENCIA ---
-    # Si la cookie existe y la sesión está vacía, recuperamos la sesión
+    # Lógica de Autologin
     if cookie_user and not st.session_state.autenticado:
         st.session_state.autenticado = True
         st.session_state.usuario_actual = cookie_user
-        # Forzamos un pequeño rerun para que la UI se actualice con el usuario cargado
-        # st.rerun() # A veces es necesario, a veces no. Lo dejamos comentado por ahora.
 
-    # Si ya estamos autenticados, retornamos éxito
     if st.session_state.autenticado:
         return True, cookie_manager
 
-    # --- PANTALLA DE LOGIN ---
+    # --- LOGIN ---
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.title("Gestor de Flota ⛽")
@@ -60,18 +109,15 @@ def verificar_login():
             
             if btn_in:
                 if validar_usuario_db(user, pwd):
-                    # 1. Actualizar Sesión
                     st.session_state.autenticado = True
                     st.session_state.usuario_actual = user.lower().strip()
                     
-                    # 2. Guardar Cookie (Si seleccionó mantener)
                     if mantener:
-                        # Expiración lejana (30 días)
                         cookie_manager.set("gestor_flota_user", user.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                     
-                    # 3. Espera vital para que el navegador procese la cookie antes del rerun
-                    st.success("Accediendo...")
-                    time.sleep(1) 
+                    with loader_placeholder:
+                        mostrar_bus_loading() # Mostramos bus al entrar
+                    time.sleep(1.5) 
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas.")
@@ -111,13 +157,13 @@ def verificar_login():
                         st.success("✅ Registro Exitoso!")
                         del st.session_state['temp_totp_secret']
                         
-                        # Autologin tras registro
                         cookie_manager.set("gestor_flota_user", reg_u.lower().strip(), expires_at=datetime.now() + timedelta(days=30))
                         st.session_state.autenticado = True
                         st.session_state.usuario_actual = reg_u.lower().strip()
                         
-                        st.success("Entrando...")
-                        time.sleep(1)
+                        with loader_placeholder:
+                            mostrar_bus_loading()
+                        time.sleep(1.5)
                         st.rerun()
                     else:
                         st.error(msg)
