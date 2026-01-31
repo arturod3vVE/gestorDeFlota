@@ -150,16 +150,12 @@ if is_authenticated:
         
         if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
         
-        # --- ZONA DE CONTROL DE FECHA (MODIFICADA) ---
-        # Usamos 3 columnas: Fecha | Botón Cargar | Info
         c_date, c_load, c_info = st.columns([1.5, 1, 2], vertical_alignment="bottom")
         
         with c_date:
-            # Quitamos el 'on_change'. Ahora es solo un selector pasivo.
             fr = st.date_input("Seleccionar Fecha", datetime.now(), key="key_fecha_rep")
         
         with c_load:
-            # BOTÓN DE CARGA MANUAL
             if st.button("📂 Cargar Fecha", use_container_width=True, help="Carga los datos de la fecha seleccionada"):
                 dt = recuperar_historial_por_fecha(fr, usuario_actual)
                 if dt:
@@ -168,7 +164,6 @@ if is_authenticated:
                 else:
                     st.session_state.reporte_diario = []
                     st.info(f"ℹ️ No hay datos guardados para el {fr.strftime('%d/%m')}. Iniciando vacío.")
-                # Recargamos para refrescar la vista
                 time.sleep(0.5)
                 st.rerun()
 
@@ -317,18 +312,18 @@ if is_authenticated:
                 st.link_button("💬 Enviar Resumen Texto", f"https://wa.me/?text={msg_encoded}")
 
     # ==============================================================================
-    #                             VISTA: TALLER
+    #                             VISTA: TALLER (INTERACTIVA)
     # ==============================================================================
     elif st.session_state.get('vista_actual') == "Taller":
         st.title("🔧 Taller de Mantenimiento")
+        
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
-        
-        with st.expander("👀 Ver Estado General de la Flota", expanded=False):
-            ya_ocupadas = [u for e in st.session_state.reporte_diario for u in e['unidades']]
-            set_taller = set(avs)
-            set_ocupadas = set(ya_ocupadas)
-            
+        ya_ocupadas = [u for e in st.session_state.reporte_diario for u in e['unidades']]
+        set_ocupadas = set(ya_ocupadas)
+
+        # 1. VISOR GRANDE (SOLO LECTURA)
+        with st.expander("👀 Ver Mapa de Flota (Solo Lectura)", expanded=True):
             st.markdown("""
             <div style='margin-bottom:15px; font-size:0.9rem;'>
                 <span style='margin-right:15px;'>🔵 <b>Disponible</b></span>
@@ -337,50 +332,63 @@ if is_authenticated:
             </div>
             """, unsafe_allow_html=True)
 
-            html_grid = "<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
+            html_grid = "<div style='display:flex; flex-wrap:wrap; gap:8px;'>" # gap más grande
             for u in all_u:
-                if u in set_taller:
-                    bg_color = "#ff4b4b" 
-                    tooltip = "En Taller"
+                if u in avs:
+                    bg = "#ff4b4b" 
+                    tip = "En Taller"
                 elif u in set_ocupadas:
-                    bg_color = "#28a745"
-                    tooltip = "Asignada"
+                    bg = "#28a745"
+                    tip = "Asignada"
                 else:
-                    bg_color = "#007bff"
-                    tooltip = "Disponible"
+                    bg = "#007bff"
+                    tip = "Disponible"
                 
-                html_grid += f"<div style='background-color:{bg_color}; color:white; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-weight:bold; font-size:13px; cursor:default;' title='Unidad {u}: {tooltip}'>{u}</div>"
+                # Cuadros grandes (50px) y letra grande (20px)
+                html_grid += f"<div style='background-color:{bg}; color:white; width:50px; height:50px; display:flex; align-items:center; justify-content:center; border-radius:8px; font-weight:bold; font-size:20px; cursor:default; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);' title='Unidad {u}: {tip}'>{u}</div>"
             
             html_grid += "</div>"
             st.markdown(html_grid, unsafe_allow_html=True)
         
         st.divider()
 
-        with st.container(border=True):
-            st.subheader("🔴 Reportar Avería")
-            st.caption("Selecciona las unidades que entran al taller:")
-            news = selector_de_rangos(sanas, "taller_add", default_str=None)
-            if st.button("Enviar a Taller", type="primary", use_container_width=True):
-                if news: 
-                    d.setdefault("averiadas", []).extend(news)
+        # 2. ZONA ROJA: SALIDA DE TALLER (INTERACTIVA)
+        if avs:
+            st.subheader("🔴 En Taller (Click para Habilitar)")
+            st.info("👇 Haz clic en una unidad para marcarla como **Disponible** (azul).")
+            
+            # Grid de botones para las averiadas
+            cols = st.columns(6) # 6 por fila
+            for i, u in enumerate(avs):
+                # Botón rojo simbólico (usando emoji porque st.button no tiene color nativo fácil)
+                if cols[i % 6].button(f"🛠️ {u}", key=f"fix_{u}", use_container_width=True, type="primary"):
+                    d["averiadas"].remove(u)
+                    guardar()
+                    st.toast(f"✅ Unidad {u} recuperada y disponible.")
+                    time.sleep(0.2)
+                    st.rerun()
+        else:
+            st.success("✅ No hay unidades en taller.")
+
+        st.divider()
+
+        # 3. ZONA AZUL: ENTRADA A TALLER (INTERACTIVA)
+        # Usamos expander para no saturar si son 100 unidades
+        with st.expander("🔵 Reportar Avería (Click para enviar a Taller)", expanded=False):
+            st.warning("👇 Haz clic en una unidad para enviarla a **Taller** (rojo).")
+            
+            # Filtramos las sanas
+            # Grid de botones para las sanas
+            cols_sanas = st.columns(8) # 8 por fila (son más pequeñas visualmente)
+            for i, u in enumerate(sanas):
+                # Botón normal (secondary) para las disponibles
+                if cols_sanas[i % 8].button(f"🚛 {u}", key=f"break_{u}", use_container_width=True):
+                    d.setdefault("averiadas", []).append(u)
                     d["averiadas"].sort()
                     guardar()
-                    st.toast(f"🛠️ {len(news)} unidades enviadas a taller")
+                    st.toast(f"⚠️ Unidad {u} enviada a taller.")
+                    time.sleep(0.2)
                     st.rerun()
-        st.divider()
-        if avs:
-            with st.container(border=True):
-                st.subheader("🟢 Reparaciones (Salida)")
-                st.caption(f"Unidades actualmente en taller: {len(avs)}")
-                reps = st.multiselect("Selecciona unidades reparadas:", avs)
-                if st.button("Marcar como Operativas", use_container_width=True):
-                    if reps: 
-                        for x in reps: d["averiadas"].remove(x)
-                        guardar()
-                        st.toast(f"✅ {len(reps)} unidades recuperadas")
-                        st.rerun()
-        else: 
-            st.success("✅ Toda la flota está operativa.")
 
     # ==============================================================================
     #                             VISTA: CONFIGURACIÓN
