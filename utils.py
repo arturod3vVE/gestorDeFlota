@@ -177,3 +177,34 @@ def verificar_login():
                 else: st.error(msg)
 
     return False, cookie_manager
+def obtener_lista_horas_puntuales():
+    horas = []
+    for h in range(24):
+        t = datetime(2000, 1, 1, h, 0).strftime("%I %p").lstrip('0')
+        horas.append(t)
+    return horas
+
+def selector_de_rangos(pool_unidades, key_unico, default_str=None):
+    if not pool_unidades:
+        st.info("No hay unidades disponibles.")
+        return []
+
+    pool_sorted = sorted(pool_unidades)
+    
+    # NOTA: En pantallas de móvil pequeñas, a veces es mejor ocultar el filtro si no se usa
+    usar_filtro = st.checkbox("🔎 Filtrar lista por rango", value=False, key=f"chk_f_{key_unico}")
+
+    if usar_filtro:
+        c1, c2 = st.columns(2)
+        with c1: f_min = st.number_input("Desde:", min_value=0, value=pool_sorted[0], step=1, key=f"fm_{key_unico}")
+        with c2: f_max = st.number_input("Hasta:", min_value=0, value=pool_sorted[-1], step=1, key=f"fx_{key_unico}")
+        opciones_filtradas = [u for u in pool_sorted if f_min <= u <= f_max]
+    else:
+        opciones_filtradas = pool_sorted
+
+    seleccion = st.multiselect(
+        f"Seleccionar unidades ({len(opciones_filtradas)}):", 
+        opciones_filtradas, 
+        key=f"multi_{key_unico}"
+    )
+    return seleccion
