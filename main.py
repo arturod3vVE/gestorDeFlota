@@ -307,7 +307,7 @@ if is_authenticated:
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
         
-        # --- VISOR DE FLOTA RESTAURADO ---
+        # --- VISOR DE FLOTA CORREGIDO (SIN ESPACIOS EXTRA) ---
         with st.expander("👀 Ver Estado General de la Flota", expanded=False):
             ya_ocupadas = [u for e in st.session_state.reporte_diario for u in e['unidades']]
             set_taller = set(avs)
@@ -321,30 +321,22 @@ if is_authenticated:
             </div>
             """, unsafe_allow_html=True)
 
+            # Construcción de string SIN indentación para evitar bugs de markdown
             html_grid = "<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
             for u in all_u:
                 if u in set_taller:
-                    bg_color = "#ff4b4b" 
-                    tooltip = "En Taller"
+                    bg = "#ff4b4b" 
+                    tip = "En Taller"
                 elif u in set_ocupadas:
-                    bg_color = "#28a745"
-                    tooltip = "Asignada"
+                    bg = "#28a745"
+                    tip = "Asignada"
                 else:
-                    bg_color = "#007bff"
-                    tooltip = "Disponible"
+                    bg = "#007bff"
+                    tip = "Disponible"
                 
-                html_grid += f"""
-                <div style='
-                    background-color: {bg_color};
-                    color: white;
-                    width: 32px; height: 32px;
-                    display: flex; align-items: center; justify-content: center;
-                    border-radius: 4px; font-weight: bold; font-size: 13px;
-                    cursor: default;' 
-                    title='Unidad {u}: {tooltip}'>
-                    {u}
-                </div>
-                """
+                # Todo en una línea para que Streamlit no lo convierta en código
+                html_grid += f"<div style='background-color:{bg}; color:white; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-weight:bold; font-size:13px; cursor:default;' title='Unidad {u}: {tip}'>{u}</div>"
+            
             html_grid += "</div>"
             st.markdown(html_grid, unsafe_allow_html=True)
         
