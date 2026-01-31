@@ -199,7 +199,8 @@ if is_authenticated:
             
             if st.button("💾 Guardar Asignación", type="primary", use_container_width=True):
                 if nom and sel: 
-                    st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sorted(sel)})
+                    # --- CAMBIO AQUÍ: Eliminado sorted() para respetar el orden de selección ---
+                    st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sel})
                     st.rerun()
                 elif not nom: st.error("⚠️ Falta seleccionar la Estación")
                 elif not sel: st.error("⚠️ Falta seleccionar Unidades")
@@ -233,7 +234,9 @@ if is_authenticated:
                         cands = [u for u in op if u not in others and u not in e['unidades']]
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
                         if st.button("Agregar seleccionadas", key=f"bad{i}") and to_add:
-                            e['unidades'].extend(to_add); e['unidades'].sort(); st.rerun()
+                            # --- CAMBIO AQUÍ: Eliminado .sort() para respetar orden ---
+                            e['unidades'].extend(to_add)
+                            st.rerun()
                         st.markdown("---")
                         
                         cambios_pendientes = (len(to_rm) > 0) or (len(to_add) > 0)
@@ -246,7 +249,8 @@ if is_authenticated:
                                         for x in to_rm: 
                                             if x in e['unidades']: e['unidades'].remove(x)
                                     if to_add: e['unidades'].extend(to_add)
-                                    e['unidades'].sort()
+                                    
+                                    # --- CAMBIO AQUÍ: Eliminado e['unidades'].sort() ---
                                     st.session_state.ed_idx = None
                                     st.toast("✅ Cambios aplicados correctamente")
                                     st.rerun()
@@ -264,15 +268,10 @@ if is_authenticated:
             st.subheader("📤 Exportar y Compartir")
             txt_r = st.text_input("Pie de página (Texto Rango)", value="Reporte Diario")
             
-            # --- ZONA DE GENERACIÓN CON AUTOGUARDADO ---
-            # Separamos el botón de la lógica inicial para detectar el clic explícito
             btn_generar = st.button("🔄 Generar Imagen", type="primary", use_container_width=True)
             
             if btn_generar or 'img_mem' not in st.session_state:
-                # 1. Generar la imagen
                 st.session_state.img_mem = generar_imagen_en_memoria(st.session_state.reporte_diario, fr, txt_r, d)
-                
-                # 2. SI FUE EL BOTÓN EL QUE LO ACTIVÓ -> GUARDAR EN BASE DE DATOS
                 if btn_generar:
                     if guardar_historial_db(fr, st.session_state.reporte_diario, usuario_actual):
                         st.toast("✅ Reporte guardado automáticamente")
@@ -308,6 +307,49 @@ if is_authenticated:
         st.title("🔧 Taller de Mantenimiento")
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
+        
+        with st.expander("👀 Ver Estado General de la Flota", expanded=False):
+            ya_ocupadas = [u for e in st.session_state.reporte_diario for u in e['unidades']]
+            set_taller = set(avs)
+            set_ocupadas = set(ya_ocupadas)
+            
+            st.markdown("""
+            <div style='margin-bottom:15px; font-size:0.9rem;'>
+                <span style='margin-right:15px;'>🔵 <b>Disponible</b></span>
+                <span style='margin-right:15px;'>🟢 <b>Asignada</b></span>
+                <span style='color:#ff4b4b'>🔴 <b>En Taller</b></span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            html_grid = "<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
+            for u in all_u:
+                if u in set_taller:
+                    bg_color = "#ff4b4b" 
+                    tooltip = "En Taller"
+                elif u in set_ocupadas:
+                    bg_color = "#28a745"
+                    tooltip = "Asignada"
+                else:
+                    bg_color = "#007bff"
+                    tooltip = "Disponible"
+                
+                html_grid += f"""
+                <div style='
+                    background-color: {bg_color};
+                    color: white;
+                    width: 32px; height: 32px;
+                    display: flex; align-items: center; justify-content: center;
+                    border-radius: 4px; font-weight: bold; font-size: 13px;
+                    cursor: default;' 
+                    title='Unidad {u}: {tooltip}'>
+                    {u}
+                </div>
+                """
+            html_grid += "</div>"
+            st.markdown(html_grid, unsafe_allow_html=True)
+        
+        st.divider()
+
         with st.container(border=True):
             st.subheader("🔴 Reportar Avería")
             st.caption("Selecciona las unidades que entran al taller:")
