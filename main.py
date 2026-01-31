@@ -150,14 +150,34 @@ if is_authenticated:
         
         if 'ed_idx' not in st.session_state: st.session_state.ed_idx = None
         
-        def ch_date():
-            dt = recuperar_historial_por_fecha(st.session_state.key_fecha_rep, usuario_actual)
-            st.session_state.reporte_diario = dt if dt else []
-            if dt: st.toast(f"📅 Registros cargados: {len(dt)}")
+        # --- ZONA DE CONTROL DE FECHA (MODIFICADA) ---
+        # Usamos 3 columnas: Fecha | Botón Cargar | Info
+        c_date, c_load, c_info = st.columns([1.5, 1, 2], vertical_alignment="bottom")
+        
+        with c_date:
+            # Quitamos el 'on_change'. Ahora es solo un selector pasivo.
+            fr = st.date_input("Seleccionar Fecha", datetime.now(), key="key_fecha_rep")
+        
+        with c_load:
+            # BOTÓN DE CARGA MANUAL
+            if st.button("📂 Cargar Fecha", use_container_width=True, help="Carga los datos de la fecha seleccionada"):
+                dt = recuperar_historial_por_fecha(fr, usuario_actual)
+                if dt:
+                    st.session_state.reporte_diario = dt
+                    st.success(f"✅ Datos del {fr.strftime('%d/%m')} cargados.")
+                else:
+                    st.session_state.reporte_diario = []
+                    st.info(f"ℹ️ No hay datos guardados para el {fr.strftime('%d/%m')}. Iniciando vacío.")
+                # Recargamos para refrescar la vista
+                time.sleep(0.5)
+                st.rerun()
 
-        c1, c2 = st.columns([1, 2], vertical_alignment="center")
-        fr = c1.date_input("Fecha del Reporte", datetime.now(), key="key_fecha_rep", on_change=ch_date)
-        c2.info(f"Visualizando: **{fr.strftime('%d/%m/%Y')}**")
+        with c_info:
+            if st.session_state.reporte_diario:
+                st.caption(f"Visualizando: **{len(st.session_state.reporte_diario)} registros** en memoria.")
+            else:
+                st.caption("Planilla vacía.")
+
         st.divider()
         
         avs = d.get("averiadas", [])
@@ -174,13 +194,13 @@ if is_authenticated:
         with st.expander("➕ Nueva Asignación", expanded=True):
             test = d.get("estaciones", [])
             ocup = [r['nombre'] for r in st.session_state.reporte_diario]
-            dis = [e for e in test if e not in ocup]
+            dis_st = [e for e in test if e not in ocup]
             
             c_st, c_tg, c_h1, c_h2 = st.columns([3, 1, 1.2, 1.2], vertical_alignment="bottom")
             
             with c_st:
-                if dis: 
-                    nom = st.selectbox("Estación", dis, placeholder="Selecciona una...", index=None)
+                if dis_st: 
+                    nom = st.selectbox("Estación", dis_st, placeholder="Selecciona una...", index=None)
                 else: 
                     st.warning("Sin estaciones.")
                     nom = None
@@ -199,7 +219,6 @@ if is_authenticated:
             
             if st.button("💾 Guardar Asignación", type="primary", use_container_width=True):
                 if nom and sel: 
-                    # Sin sorted() para respetar orden de selección
                     st.session_state.reporte_diario.append({"nombre": nom, "horario": h_str, "unidades": sel})
                     st.rerun()
                 elif not nom: st.error("⚠️ Falta seleccionar la Estación")
@@ -233,8 +252,7 @@ if is_authenticated:
                         others = [u for ix, r in enumerate(st.session_state.reporte_diario) if ix != i for u in r['unidades']]
                         cands = [u for u in op if u not in others and u not in e['unidades']]
                         to_add = selector_de_rangos(cands, f"ea{i}", default_str=None)
-                        if st.button("Agregar seleccionadas", key=f"bad{i}") and to_add:
-                            # Sin .sort() para respetar orden
+                        if st.button("Agregar selección", key=f"bad{i}") and to_add:
                             e['unidades'].extend(to_add)
                             st.rerun()
                         st.markdown("---")
@@ -249,7 +267,6 @@ if is_authenticated:
                                         for x in to_rm: 
                                             if x in e['unidades']: e['unidades'].remove(x)
                                     if to_add: e['unidades'].extend(to_add)
-                                    # Sin sort() al salir
                                     st.session_state.ed_idx = None
                                     st.toast("✅ Cambios aplicados correctamente")
                                     st.rerun()
@@ -307,7 +324,6 @@ if is_authenticated:
         avs = d.get("averiadas", [])
         sanas = [u for u in all_u if u not in avs]
         
-        # --- VISOR DE FLOTA CORREGIDO (SIN ESPACIOS EXTRA) ---
         with st.expander("👀 Ver Estado General de la Flota", expanded=False):
             ya_ocupadas = [u for e in st.session_state.reporte_diario for u in e['unidades']]
             set_taller = set(avs)
@@ -321,21 +337,19 @@ if is_authenticated:
             </div>
             """, unsafe_allow_html=True)
 
-            # Construcción de string SIN indentación para evitar bugs de markdown
             html_grid = "<div style='display:flex; flex-wrap:wrap; gap:6px;'>"
             for u in all_u:
                 if u in set_taller:
-                    bg = "#ff4b4b" 
-                    tip = "En Taller"
+                    bg_color = "#ff4b4b" 
+                    tooltip = "En Taller"
                 elif u in set_ocupadas:
-                    bg = "#28a745"
-                    tip = "Asignada"
+                    bg_color = "#28a745"
+                    tooltip = "Asignada"
                 else:
-                    bg = "#007bff"
-                    tip = "Disponible"
+                    bg_color = "#007bff"
+                    tooltip = "Disponible"
                 
-                # Todo en una línea para que Streamlit no lo convierta en código
-                html_grid += f"<div style='background-color:{bg}; color:white; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-weight:bold; font-size:13px; cursor:default;' title='Unidad {u}: {tip}'>{u}</div>"
+                html_grid += f"<div style='background-color:{bg_color}; color:white; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-weight:bold; font-size:13px; cursor:default;' title='Unidad {u}: {tooltip}'>{u}</div>"
             
             html_grid += "</div>"
             st.markdown(html_grid, unsafe_allow_html=True)
