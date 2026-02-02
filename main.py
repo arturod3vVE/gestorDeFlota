@@ -89,14 +89,15 @@ if is_authenticated:
                 st.session_state.clear()
                 st.session_state["logout_pending"] = True
                 
-                # 2. Mensaje visual (se verá por debajo del autobús)
-                st.warning("Cerrando sesión...")
-                
-                # 3. Limpieza Navegador (Frontend - JS)
+                # 2. Invocamos la animación y el borrado de cookie
                 from utils import ejecutar_logout_hardcore
                 ejecutar_logout_hardcore()
                 
-                # 4. DETENCIÓN INMEDIATA (Esto evita el AttributeError)
+                # 3. [CRUCIAL] Esperamos 1 segundo para que la animación cargue visualmente
+                # antes de que st.stop() congele el script.
+                time.sleep(1)
+                
+                # 4. DETENCIÓN INMEDIATA (Evita el AttributeError)
                 st.stop()
 
     # --- RUTEO DE VISTAS ---
