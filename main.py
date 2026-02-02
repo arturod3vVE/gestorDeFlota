@@ -85,15 +85,17 @@ if is_authenticated:
         with st.popover("🚪 Cerrar Sesión", use_container_width=True):
             st.markdown("¿Salir del sistema?")
             if st.button("✅ Confirmar", type="primary", use_container_width=True):
-                from datetime import datetime, timedelta
-                cookie_manager.set("gestor_flota_user", "", expires_at=datetime.now() - timedelta(days=1))
-                try: cookie_manager.delete("gestor_flota_user")
-                except: pass
+                # 1. Limpieza Python (Backend)
                 st.session_state.clear()
                 st.session_state["logout_pending"] = True
-                st.warning("Cerrando sesión...")
-                time.sleep(1.5) 
-                st.rerun()
+                
+                # 2. Mensaje visual
+                st.warning("Cerrando sesión de forma segura...")
+                
+                # 3. Limpieza Navegador (Frontend - JS)
+                # Importamos la función aquí mismo para usarla
+                from utils import ejecutar_logout_hardcore
+                ejecutar_logout_hardcore()
 
     # --- RUTEO DE VISTAS ---
     if st.session_state.vista_actual == "Asignacion":
