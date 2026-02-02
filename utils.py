@@ -210,54 +210,56 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
     return seleccion
 def ejecutar_logout_hardcore():
     """
-    1. Cubre la pantalla con el autobús (HTML/CSS).
-    2. Borra la cookie (JS).
-    3. Fuerza la recarga (JS) después de una pausa para evitar ver el error de desconexión.
+    1. Usamos st.markdown para inyectar el CSS globalmente (rompe el iframe).
+    2. Usamos components.html solo para el script de borrado con delay.
     """
-    html_code = """
-    <!DOCTYPE html>
-    <html>
-    <head>
+    
+    # 1. LA CAPA VISUAL (Directo al DOM principal)
+    st.markdown("""
         <style>
-            /* Capa que cubre TODO, incluso errores de Streamlit */
             .logout-overlay {
-                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                background-color: #ffffff; z-index: 2147483647; /* Z-index máximo posible */
-                display: flex; flex-direction: column; justify-content: center; align-items: center;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background-color: #ffffff !important;
+                z-index: 99999999 !important; /* Encima de todo */
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                pointer-events: all; /* Bloquea clics */
             }
-            .bus-emoji { font-size: 80px; animation: driveOut 2s forwards ease-in; margin-bottom: 20px; }
-            .bye-text { font-family: sans-serif; color: #555; font-weight: 600; font-size: 18px; }
+            .bus-out { font-size: 80px; animation: driveOut 2.5s forwards ease-in; margin-bottom: 20px; }
+            .bye-text { font-family: sans-serif; color: #555; font-weight: bold; font-size: 20px; }
             
             @keyframes driveOut {
                 0% { transform: translateX(0); opacity: 1; }
-                20% { transform: translateX(-20px); }
-                100% { transform: translateX(100vw); opacity: 0; }
+                100% { transform: translateX(120vw); opacity: 0; }
             }
         </style>
-    </head>
-    <body>
         <div class="logout-overlay">
-            <div class="bus-emoji">🚌💨</div>
+            <div class="bus-out">🚌💨</div>
             <div class="bye-text">Cerrando sesión...</div>
         </div>
+    """, unsafe_allow_html=True)
 
-        <script>
-            // Función asíncrona para asegurar tiempos
-            async function killSession() {
-                // A. Borrar cookies (Nuclear)
-                document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-                
-                // B. Esperar 1 segundo para que la animación se vea y tape cualquier error de red
-                await new Promise(r => setTimeout(r, 1000));
-                
-                // C. Recarga forzada (Hard Reload)
-                window.parent.location.reload(true);
-            }
+    # 2. LA BOMBA LÓGICA (Javascript con espera)
+    # Esperamos 1500ms para que la animación se vea antes de matar la conexión
+    js_killer = """
+    <script>
+        async function killSession() {
+            // Esperamos 1.5 segundos viendo el autobús
+            await new Promise(r => setTimeout(r, 1500));
             
-            killSession();
-        </script>
-    </body>
-    </html>
+            // Matamos la cookie
+            document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            
+            // Matamos la página (Hard Reload)
+            window.parent.location.reload(true);
+        }
+        killSession();
+    </script>
     """
-    # Altura 0 para que no desplace el layout, pero el CSS 'fixed' lo mostrará fullscreen
-    components.html(html_code, height=0, width=0)
+    components.html(js_killer, height=0, width=0)
