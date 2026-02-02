@@ -3,6 +3,8 @@ import gspread
 import hashlib
 import json
 import pyotp
+from datetime import datetime
+import pytz
 
 NOMBRE_HOJA = "DB_GestorFlota"
 
@@ -141,6 +143,58 @@ def cargar_datos_db(usuario):
         
     return datos
 
+def obtener_fecha_creacion_original(fecha, usuario):
+    sh = conectar_google_sheets()
+    if not sh: return None
+    try:
+        nombre_pestana = f"Historial_{usuario.strip().lower()}"
+        ws = asegurar_pestana(sh, nombre_pestana)
+        
+        fecha_target = fecha.strftime("%Y-%m-%d")
+        records = ws.get_all_records() # Devuelve lista de diccionarios
+        
+        for r in records:
+            if str(r.get("Fecha")) == fecha_target:
+                # Retornamos lo que haya en la columna 'Creado'
+                return r.get("Creado", None)
+        return None
+    except: return None
+
+def recuperar_historial_rango(usuario, f_inicio, f_fin):
+    sh = conectar_google_sheets()
+    if not sh: return []
+    try:
+        nombre_pestana = f"Historial_{usuario.strip().lower()}"
+        ws = asegurar_pestana(sh, nombre_pestana)
+        
+        try: records = ws.get_all_records()
+        except: return []
+        
+        resultados = []
+        
+        s_inicio = f_inicio.strftime("%Y-%m-%d")
+        s_fin = f_fin.strftime("%Y-%m-%d")
+        
+        for r in records:
+            fecha_str = str(r.get("Fecha"))
+            if s_inicio <= fecha_str <= s_fin:
+                try:
+                    data = {
+                        "fecha": fecha_str,
+                        "reporte": json.loads(r.get("JSON", "[]")),
+                        "creado": r.get("Creado", ""),
+                        "actualizado": r.get("Actualizado", "")
+                    }
+                    resultados.append(data)
+                except: pass
+                
+        # Ordenamos: El más reciente primero
+        resultados.sort(key=lambda x: x["fecha"], reverse=True)
+        return resultados
+    except Exception as e:
+        print(f"Error historial rango: {e}")
+        return []
+
 def guardar_datos_db(datos, usuario):
     sh = conectar_google_sheets()
     if not sh: return False
@@ -173,29 +227,33 @@ def guardar_datos_db(datos, usuario):
         return False
 
 # --- HISTORIAL (CORREGIDO) ---
-def guardar_historial_db(fecha, reporte, usuario):
+def guardar_historial_db(fecha, reporte, usuario, fecha_creacion_preservada=None):
     sh = conectar_google_sheets()
     if not sh: return False
     try:
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
-        # --- CORRECCIÓN: Verificar encabezados explícitamente ---
-        encabezados = ["Fecha", "Usuario", "JSON"]
+        # Nuevos encabezados
+        nuevos_encabezados = ["Fecha", "Usuario", "JSON", "Creado", "Actualizado"]
         
-        # Leemos solo la primera fila
+        # Verificamos/Actualizamos encabezados
         primera_fila = ws.row_values(1)
-        
-        # Si la primera fila no coincide con los encabezados (o está vacía)
-        if not primera_fila or primera_fila != encabezados:
-            # Insertamos los encabezados en la Fila 1
-            ws.insert_row(encabezados, index=1)
-            
+        if not primera_fila:
+            ws.append_row(nuevos_encabezados)
+        elif len(primera_fila) < 5 and "Creado" not in primera_fila:
+            ws.update(range_name="D1:E1", values=[["Creado", "Actualizado"]])
+
         fecha_str = fecha.strftime("%Y-%m-%d")
         json_reporte = json.dumps(reporte, ensure_ascii=False)
         
-        # Guardamos la fila nueva (se añadirá DESPUÉS de los encabezados)
-        ws.append_row([fecha_str, usuario, json_reporte])
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        creado = fecha_creacion_preservada if fecha_creacion_preservada else ahora
+        actualizado = ahora
+        
+        # Guardamos con las 5 columnas
+        ws.append_row([fecha_str, usuario, json_reporte, creado, actualizado])
         return True
     except Exception as e: 
         print(f"Error guardando historial: {e}")
@@ -208,20 +266,49 @@ def recuperar_historial_por_fecha(fecha, usuario):
         nombre_pestana = f"Historial_{usuario.strip().lower()}"
         ws = asegurar_pestana(sh, nombre_pestana)
         
-        # Usamos get_all_records que espera encabezados en la fila 1
-        # Si no hay encabezados, puede fallar, así que lo protegemos
         try:
             records = ws.get_all_records()
         except:
-            # Si falla (ej: hoja vacía o corrupta), devolvemos lista vacía
             return []
             
         fecha_target = fecha.strftime("%Y-%m-%d")
         encontrado = []
         for r in records:
-            # Convertimos a string por seguridad
             if str(r.get("Fecha")) == fecha_target:
                 try: encontrado = json.loads(r.get("JSON", "[]"))
                 except: pass
         return encontrado
     except: return []
+
+def eliminar_historial_por_fecha(fecha, usuario):
+    sh = conectar_google_sheets()
+    if not sh: return False
+    try:
+        nombre_pestana = f"Historial_{usuario.strip().lower()}"
+        ws = asegurar_pestana(sh, nombre_pestana)
+        
+        fecha_target = fecha.strftime("%Y-%m-%d")
+        
+        rows = ws.get_all_values()
+        if not rows: return True
+        
+        new_rows = [rows[0]] # Encabezados
+        data_rows = rows[1:] # Datos
+        filtrados = []
+
+        for r in data_rows:
+            if len(r) > 0:
+                if str(r[0]).strip() == fecha_target:
+                    continue 
+            filtrados.append(r)
+            
+        final_rows = new_rows + filtrados
+        
+        # 3. Limpiar y reescribir
+        ws.clear()
+        ws.update(range_name="A1", values=final_rows)
+        return True
+        
+    except Exception as e:
+        print(f"Error eliminando historial: {e}")
+        return False

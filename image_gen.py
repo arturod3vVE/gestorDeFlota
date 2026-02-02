@@ -3,77 +3,124 @@ import requests
 import re
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
+import streamlit as st
 
-# Nombres de archivos
-FONT_REGULAR = "Roboto-Regular.ttf"
-FONT_BOLD = "Roboto-Bold.ttf"
-ICONO_BOMBA = "icono_bomba.png"
+# --- RUTAS ABSOLUTAS ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FONT_REGULAR = os.path.join(BASE_DIR, "Roboto-Regular.ttf")
+FONT_BOLD = os.path.join(BASE_DIR, "Roboto-Bold.ttf")
+ICONO_BOMBA = os.path.join(BASE_DIR, "icono_bomba.png")
 
-def descargar_fuentes():
-    urls = {
-        FONT_REGULAR: "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf",
-        FONT_BOLD: "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Bold.ttf"
-    }
-    for filename, url in urls.items():
-        if not os.path.exists(filename):
-            try:
-                r = requests.get(url, timeout=5)
-                if r.status_code == 200:
-                    with open(filename, 'wb') as f:
-                        f.write(r.content)
-            except Exception as e:
-                print(f"No se pudo descargar {filename}: {e}")
-                pass
+def descargar_recurso(url, filepath, descripcion):
+    """Descarga un archivo con validación."""
+    print(f"🔄 [Sistema] Verificando {descripcion}...")
+    
+    # Si el archivo existe pero la carga falla (0 bytes o corrupto), lo borramos preventivamente
+    if os.path.exists(filepath):
+        if os.path.getsize(filepath) < 5000: # Menos de 5KB no es una fuente real
+            print(f"🗑️ [Sistema] {descripcion} parece corrupto. Borrando...")
+            try: os.remove(filepath)
+            except: pass
 
-def obtener_icono_bomba():
-    if not os.path.exists(ICONO_BOMBA):
+    if not os.path.exists(filepath):
         try:
-            url = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26fd.png"
-            response = requests.get(url, timeout=3)
-            if response.status_code == 200:
-                img = Image.open(BytesIO(response.content)).convert("RGBA")
-                img = img.resize((40, 40))
-                img.save(ICONO_BOMBA)
-                return img
-        except: return None
-    else:
-        try: return Image.open(ICONO_BOMBA).convert("RGBA")
-        except: return None
+            print(f"⬇️ [Sistema] Descargando {descripcion} desde la nube...")
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get(url, headers=headers, timeout=10)
+            
+            if r.status_code == 200:
+                with open(filepath, 'wb') as f:
+                    f.write(r.content)
+                print(f"✅ [Sistema] {descripcion} descargado ({os.path.getsize(filepath)} bytes).")
+                return True
+            else:
+                print(f"❌ [Sistema] Falló descarga {descripcion}. Código: {r.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ [Sistema] Error red {descripcion}: {e}")
+            return False
+    return True
 
-def limpiar_texto(texto):
-    return re.sub(r'[^\w\s\.,:;\-\(\)\/\u00C0-\u00FF]', '', str(texto))
+@st.cache_resource
+def obtener_recursos_graficos():
+    """Descarga recursos gráficos."""
+    
+    # 1. FUENTES (Enlaces directos de Gstatic - Más estables)
+    # Roboto Regular
+    descargar_recurso(
+        "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.ttf",
+        FONT_REGULAR, "Fuente Regular"
+    )
+    # Roboto Bold
+    descargar_recurso(
+        "https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf",
+        FONT_BOLD, "Fuente Bold"
+    )
+    
+    # 2. ICONO
+    img_icon = None
+    url_icon = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26fd.png"
+    if descargar_recurso(url_icon, ICONO_BOMBA, "Icono"):
+        try:
+            img_icon = Image.open(ICONO_BOMBA).convert("RGBA")
+            img_icon = img_icon.resize((40, 40))
+        except: pass
+        
+    return img_icon
 
 def cargar_fuente_segura(tipo, tamaño):
-    if tipo == "bold":
-        archivo_roboto = FONT_BOLD
-        sistema_arial = "arialbd.ttf"
-        sistema_linux = "DejaVuSans-Bold.ttf"
-    else:
-        archivo_roboto = FONT_REGULAR
-        sistema_arial = "arial.ttf"
-        sistema_linux = "DejaVuSans.ttf"
-
-    try: return ImageFont.truetype(archivo_roboto, tamaño)
-    except: pass
-    try: return ImageFont.truetype(sistema_arial, tamaño)
-    except: pass
-    try: return ImageFont.truetype(sistema_linux, tamaño)
-    except: pass
+    """
+    Intenta cargar:
+    1. Fuente descargada (Roboto).
+    2. Fuente del sistema Linux (DejaVu/Liberation).
+    3. Default (Pixelada).
+    """
+    ruta_objetivo = FONT_BOLD if tipo == "bold" else FONT_REGULAR
+    
+    # INTENTO 1: Fuente Descargada
+    try:
+        return ImageFont.truetype(ruta_objetivo, tamaño)
+    except Exception:
+        # Si falla, borramos el archivo corrupto para el siguiente reinicio
+        if os.path.exists(ruta_objetivo):
+            print(f"⚠️ Archivo corrupto detectado: {ruta_objetivo}. Eliminando.")
+            try: os.remove(ruta_objetivo)
+            except: pass
+    
+    # INTENTO 2: Fuentes comunes de Linux (Tu caso: /home/r2d2)
+    fuentes_linux = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "DejaVuSans.ttf",
+        "arial.ttf"
+    ]
+    
+    for f in fuentes_linux:
+        try: return ImageFont.truetype(f, tamaño)
+        except: continue
+            
+    # INTENTO 3: Default (Fea pero funciona)
+    print("⚠️ Usando fuente por defecto (Fallback)")
     return ImageFont.load_default()
 
+def limpiar_texto(texto):
+    return re.sub(r'[^\w\s\.,:;\-\(\)\/áéíóúÁÉÍÓÚñÑ]', '', str(texto))
+
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
-    descargar_fuentes()
+    # Aseguramos recursos
+    icon_res = obtener_recursos_graficos()
     
     ANCHO = config_datos.get("img_width", 450)
     FONT_S = config_datos.get("font_size", 24)
     BG = config_datos.get("bg_color", "#ECE5DD")
-    PALETA = config_datos.get("st_colors", ["#f8d7da"])
-    # COLOR DE TEXTO DINÁMICO
+    try: PALETA = config_datos.get("st_colors", ["#f8d7da"])
+    except: PALETA = ["#f8d7da"]
     TXT_COL = config_datos.get("text_color", "#000000")
     
     LH = int(FONT_S * 1.3)
     GAP = int(FONT_S * 1.5)
     
+    # Cargamos fuentes (Ahora con fallback a Linux)
     f_ti = cargar_fuente_segura("bold", FONT_S + 4)
     f_bd = cargar_fuente_segura("bold", FONT_S)
     f_no = cargar_fuente_segura("regular", FONT_S)
@@ -84,11 +131,26 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
     w_draw = ANCHO - 40
 
     def draw_centered(txt, y_pos, fnt, bg_col="#d1e7dd"):
-        txt = limpiar_texto(txt).upper()
+        if not txt: return y_pos
+        txt = limpiar_texto(str(txt)).upper()
+        
         lines = []
         cur = ""
-        for w in txt.split():
-            if d.textbbox((0,0), cur + w + " ", font=fnt)[2] > w_draw:
+        words = txt.split()
+        
+        for w in words:
+            # Medir palabra
+            bbox = d.textbbox((0,0), w, font=fnt)
+            w_word = bbox[2] - bbox[0]
+            
+            if w_word > w_draw:
+                if cur: lines.append(cur)
+                lines.append(w)
+                cur = ""
+                continue
+
+            bbox_line = d.textbbox((0,0), cur + w + " ", font=fnt)
+            if (bbox_line[2] - bbox_line[0]) > w_draw:
                 lines.append(cur)
                 cur = w + " "
             else:
@@ -96,34 +158,39 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
         if cur: lines.append(cur)
         
         for l in lines:
+            l = l.strip()
+            if not l: continue
             bb = d.textbbox((0,0), l, font=fnt)
             w_l = bb[2] - bb[0]
-            d.rectangle([(ANCHO/2 - w_l/2 - 10, y_pos), (ANCHO/2 + w_l/2 + 10, y_pos + LH + 5)], fill=bg_col)
-            # Usamos el color de texto dinámico
-            d.text((ANCHO/2 - w_l/2, y_pos), l, font=fnt, fill=TXT_COL)
-            y_pos += int(LH * 1.4)
-        return y_pos + 10
+            
+            x_start = (ANCHO - w_l) / 2
+            d.rectangle([(x_start - 5, y_pos), (x_start + w_l + 5, y_pos + LH + 2)], fill=bg_col)
+            d.text((x_start, y_pos), l, font=fnt, fill=TXT_COL)
+            y_pos += int(LH * 1.3)
+        return y_pos + 8
 
-    dias = {0:"lunes",1:"martes",2:"miércoles",3:"jueves",4:"viernes",5:"sábado",6:"domingo"}
-    f_str = f"{dias[fecha_dt.weekday()]} {fecha_dt.strftime('%d/%m/%y')}".upper()
+    dias = {0:"LUNES",1:"MARTES",2:"MIÉRCOLES",3:"JUEVES",4:"VIERNES",5:"SÁBADO",6:"DOMINGO"}
+    dia_txt = dias.get(fecha_dt.weekday(), "")
+    f_str = f"{dia_txt} {fecha_dt.strftime('%d/%m/%y')}"
     
     col_ti = PALETA[2] if len(PALETA)>2 else "#d1e7dd"
     y = draw_centered("REPORTE DE ESTACIONES DE", y, f_ti, col_ti)
     y = draw_centered(f"SERVICIO Y UNIDADES {f_str}", y, f_ti, col_ti)
     
-    icon = obtener_icono_bomba()
-    if icon:
+    if icon_res:
         isz = int(FONT_S * 1.5)
-        icon_res = icon.resize((isz, isz))
-        cnt = 5
-        tot_w = (isz*cnt) + (8*(cnt-1))
-        if tot_w > w_draw: 
-            cnt = 3
+        try:
+            icon_draw = icon_res.resize((isz, isz))
+            cnt = 5
             tot_w = (isz*cnt) + (8*(cnt-1))
-        sx = (ANCHO - tot_w)/2
-        for i in range(cnt):
-            img.paste(icon_res, (int(sx + i*(isz+8)), y), icon_res)
-        y += int(isz * 1.5)
+            if tot_w > w_draw: 
+                cnt = 3
+                tot_w = (isz*cnt) + (8*(cnt-1))
+            sx = (ANCHO - tot_w)/2
+            for i in range(cnt):
+                img.paste(icon_draw, (int(sx + i*(isz+8)), y), icon_draw)
+            y += int(isz * 1.5)
+        except: y += LH
     else:
         y += LH
 
@@ -132,10 +199,7 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
         nom = limpiar_texto(st_data['nombre']).upper()
         hor = limpiar_texto(st_data['horario']).upper()
         
-        if hor: 
-            txt_st = f"• ESTACIÓN {nom}: {hor}"
-        else: 
-            txt_st = f"• ESTACIÓN {nom}"
+        txt_st = f"• ESTACIÓN {nom}: {hor}" if hor else f"• ESTACIÓN {nom}"
             
         lines_t = []
         cur_t = ""
@@ -149,9 +213,8 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
         
         for l in lines_t:
             bb = d.textbbox((0,0), l, font=f_bd)
-            w_l = bb[2]
+            w_l = bb[2] - bb[0]
             d.rectangle([(20, y), (20 + w_l + 10, y + LH + 4)], fill=col)
-            # Texto dinámico
             d.text((25, y + 2), l, font=f_bd, fill=TXT_COL)
             y += int(LH * 1.2)
         
@@ -167,33 +230,33 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
         if cur_n: lines_n.append(cur_n)
         
         for l in lines_n:
-            # Texto dinámico
             d.text((20, y), l, font=f_no, fill=TXT_COL)
             y += LH
         y += GAP
 
-    bb_r = d.textbbox((0,0), "• RANGO DE UNIDADES", font=f_bd)
-    d.rectangle([(20, y), (20 + bb_r[2] + 10, y + LH + 4)], fill="#cff4fc")
-    # Texto dinámico
-    d.text((25, y + 2), "• RANGO DE UNIDADES", font=f_bd, fill=TXT_COL)
-    y += int(LH * 1.2)
-    
-    ran_clean = limpiar_texto(rango_txt).upper()
-    lines_r = []
-    cur_r = ""
-    for w in ran_clean.split():
-        if d.textbbox((0,0), cur_r + w + " ", font=f_no)[2] > w_draw:
-            lines_r.append(cur_r)
-            cur_r = w + " "
-        else:
-            cur_r += w + " "
-    if cur_r: lines_r.append(cur_r)
-    
-    for l in lines_r:
-        # Texto dinámico
-        d.text((20, y), l, font=f_no, fill=TXT_COL)
-        y += LH
-    y += GAP
+    if rango_txt:
+        txt_r = "• RANGO DE UNIDADES"
+        bb_r = d.textbbox((0,0), txt_r, font=f_bd)
+        w_r = bb_r[2] - bb_r[0]
+        d.rectangle([(20, y), (20 + w_r + 10, y + LH + 4)], fill="#cff4fc")
+        d.text((25, y + 2), txt_r, font=f_bd, fill=TXT_COL)
+        y += int(LH * 1.2)
+        
+        ran_clean = limpiar_texto(rango_txt).upper()
+        lines_r = []
+        cur_r = ""
+        for w in ran_clean.split():
+            if d.textbbox((0,0), cur_r + w + " ", font=f_no)[2] > w_draw:
+                lines_r.append(cur_r)
+                cur_r = w + " "
+            else:
+                cur_r += w + " "
+        if cur_r: lines_r.append(cur_r)
+        
+        for l in lines_r:
+            d.text((20, y), l, font=f_no, fill=TXT_COL)
+            y += LH
+        y += GAP
 
     out = img.crop((0, 0, ANCHO, y + 20))
     buf = BytesIO()

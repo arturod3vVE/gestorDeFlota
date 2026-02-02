@@ -39,7 +39,7 @@ def mostrar_bus_loading():
     <div class="bus-overlay">
         <div class="bus-emoji">🚌</div>
         <div class="loading-bar"><div class="loading-progress"></div></div>
-        <div class="loading-text">Cargando flota...</div>
+        <div class="loading-text">Cargando ...</div>
     </div>
     """
     st.markdown(loading_html, unsafe_allow_html=True)
