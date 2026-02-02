@@ -44,6 +44,57 @@ def mostrar_bus_loading():
     """
     st.markdown(loading_html, unsafe_allow_html=True)
 
+def verificar_fase_cierre():
+    """
+    Se ejecuta al principio de main.py.
+    Si detecta que el usuario quiere salir, toma el control total,
+    muestra la animación y mata la sesión.
+    """
+    if st.session_state.get("fase_salida"):
+        # 1. Mostrar la Animación (Overlay CSS puro que cubre todo)
+        st.markdown("""
+            <style>
+                .logout-overlay {
+                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                    background-color: #ffffff; z-index: 99999999;
+                    display: flex; flex-direction: column; justify-content: center; align-items: center;
+                }
+                .bus-out { font-size: 80px; animation: driveOut 2s forwards ease-in; margin-bottom: 20px; }
+                .bye-text { font-family: sans-serif; color: #555; font-weight: bold; font-size: 20px; }
+                @keyframes driveOut {
+                    0% { transform: translateX(0); opacity: 1; }
+                    100% { transform: translateX(120vw); opacity: 0; }
+                }
+            </style>
+            <div class="logout-overlay">
+                <div class="bus-out">🚌💨</div>
+                <div class="bye-text">Cerrando sesión...</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # 2. Ejecutar Javascript para borrar cookies y recargar
+        # Usamos un pequeño delay en JS para asegurar que el CSS se haya pintado
+        js = """
+        <script>
+            async function kill() {
+                // Esperar 1.5 seg visualizando el bus
+                await new Promise(r => setTimeout(r, 1500));
+                
+                // Borrar cookies
+                document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                
+                // Forzar recarga completa
+                window.parent.location.reload(true);
+            }
+            kill();
+        </script>
+        """
+        components.html(js, height=0, width=0)
+        
+        # 3. DETENER PYTHON AQUÍ. No cargar el resto de la app.
+        time.sleep(5) # Mantiene el script vivo mientras el JS hace su trabajo
+        st.stop()
+
 # --- TRUCO JS PARA ACTIVAR HUELLA/AUTOCOMPLETE ---
 def inyectar_js_autocomplete():
     # Este script busca los inputs por su etiqueta (aria-label) y les fuerza el atributo autocomplete
