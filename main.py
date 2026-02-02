@@ -89,13 +89,15 @@ if is_authenticated:
                 st.session_state.clear()
                 st.session_state["logout_pending"] = True
                 
-                # 2. Mensaje visual
-                st.warning("Cerrando sesión de forma segura...")
+                # 2. Mensaje visual (se verá por debajo del autobús)
+                st.warning("Cerrando sesión...")
                 
                 # 3. Limpieza Navegador (Frontend - JS)
-                # Importamos la función aquí mismo para usarla
                 from utils import ejecutar_logout_hardcore
                 ejecutar_logout_hardcore()
+                
+                # 4. DETENCIÓN INMEDIATA (Esto evita el AttributeError)
+                st.stop()
 
     # --- RUTEO DE VISTAS ---
     if st.session_state.vista_actual == "Asignacion":
