@@ -210,16 +210,54 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
     return seleccion
 def ejecutar_logout_hardcore():
     """
-    Inyecta Javascript puro para borrar la cookie y forzar una recarga total del navegador.
-    Es la única forma 100% efectiva en celulares/PWA.
+    1. Cubre la pantalla con el autobús (HTML/CSS).
+    2. Borra la cookie (JS).
+    3. Fuerza la recarga (JS) después de una pausa para evitar ver el error de desconexión.
     """
-    js = """
-    <script>
-        // 1. Borrar la cookie manualmente con fecha en el pasado
-        document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        
-        // 2. Forzar recarga completa (ignorando caché)
-        window.parent.location.reload(true);
-    </script>
+    html_code = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            /* Capa que cubre TODO, incluso errores de Streamlit */
+            .logout-overlay {
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                background-color: #ffffff; z-index: 2147483647; /* Z-index máximo posible */
+                display: flex; flex-direction: column; justify-content: center; align-items: center;
+            }
+            .bus-emoji { font-size: 80px; animation: driveOut 2s forwards ease-in; margin-bottom: 20px; }
+            .bye-text { font-family: sans-serif; color: #555; font-weight: 600; font-size: 18px; }
+            
+            @keyframes driveOut {
+                0% { transform: translateX(0); opacity: 1; }
+                20% { transform: translateX(-20px); }
+                100% { transform: translateX(100vw); opacity: 0; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="logout-overlay">
+            <div class="bus-emoji">🚌💨</div>
+            <div class="bye-text">Cerrando sesión...</div>
+        </div>
+
+        <script>
+            // Función asíncrona para asegurar tiempos
+            async function killSession() {
+                // A. Borrar cookies (Nuclear)
+                document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+                
+                // B. Esperar 1 segundo para que la animación se vea y tape cualquier error de red
+                await new Promise(r => setTimeout(r, 1000));
+                
+                // C. Recarga forzada (Hard Reload)
+                window.parent.location.reload(true);
+            }
+            
+            killSession();
+        </script>
+    </body>
+    </html>
     """
-    components.html(js, height=0, width=0)
+    # Altura 0 para que no desplace el layout, pero el CSS 'fixed' lo mostrará fullscreen
+    components.html(html_code, height=0, width=0)
