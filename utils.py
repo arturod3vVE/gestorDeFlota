@@ -208,3 +208,18 @@ def selector_de_rangos(pool_unidades, key_unico, default_str=None):
         key=f"multi_{key_unico}"
     )
     return seleccion
+def ejecutar_logout_hardcore():
+    """
+    Inyecta Javascript puro para borrar la cookie y forzar una recarga total del navegador.
+    Es la única forma 100% efectiva en celulares/PWA.
+    """
+    js = """
+    <script>
+        // 1. Borrar la cookie manualmente con fecha en el pasado
+        document.cookie = "gestor_flota_user=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        
+        // 2. Forzar recarga completa (ignorando caché)
+        window.parent.location.reload(true);
+    </script>
+    """
+    components.html(js, height=0, width=0)
