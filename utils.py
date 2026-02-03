@@ -20,26 +20,47 @@ def get_cookie_manager():
     return stx.CookieManager(key="gestor_cookies_flota")
 
 # --- ANIMACIÓN DEL AUTOBÚS (PANTALLA COMPLETA) ---
-def mostrar_bus_loading():
-    loading_html = """
+def mostrar_bus_loading(fade_out=False):
+    # Si fade_out es True, aplicamos opacidad 0 y animación
+    # Si es False, opacidad 1
+    opacity = "0" if fade_out else "1"
+    
+    # Z-Index 90: Cubre el contenido (0) pero deja ver el Sidebar (100) cerrándose
+    z_index = "90" 
+    
+    loading_html = f"""
     <style>
-        .bus-overlay {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background-color: #ffffff; z-index: 999999;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-        }
-        .bus-emoji { font-size: 80px; animation: bounceBus 0.6s infinite alternate; margin-bottom: 20px; }
-        .loading-bar { width: 200px; height: 6px; background-color: #eee; border-radius: 3px; overflow: hidden; }
-        .loading-progress { width: 100%; height: 100%; background-color: #007BFF; animation: loadBar 1.5s infinite ease-in-out; transform-origin: left; }
-        .loading-text { margin-top: 15px; font-family: sans-serif; color: #555; font-weight: 600; font-size: 18px; animation: pulseText 1.5s infinite; }
-        @keyframes bounceBus { from { transform: translateY(0); } to { transform: translateY(-10px); } }
-        @keyframes loadBar { 0% { transform: scaleX(0); } 50% { transform: scaleX(0.7); } 100% { transform: scaleX(1); opacity: 0; } }
-        @keyframes pulseText { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .bus-overlay {{
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh;
+            background-color: #ffffff; 
+            z-index: {z_index}; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center;
+            
+            /* PROPIEDADES DE ANIMACIÓN SUAVE */
+            opacity: {opacity};
+            transition: opacity 0.6s ease-in-out;
+            pointer-events: none; /* Para que no bloquee clics mientras se desvanece */
+        }}
+        .bus-emoji {{ font-size: 80px; animation: bounceBus 0.6s infinite alternate; margin-bottom: 20px; }}
+        .loading-bar {{ width: 200px; height: 6px; background-color: #eee; border-radius: 3px; overflow: hidden; }}
+        .loading-progress {{ width: 100%; height: 100%; background-color: #007BFF; animation: loadBar 1.5s infinite ease-in-out; transform-origin: left; }}
+        .loading-text {{ margin-top: 15px; font-family: sans-serif; color: #555; font-weight: 600; font-size: 18px; animation: pulseText 1.5s infinite; }}
+        
+        @keyframes bounceBus {{ from {{ transform: translateY(0); }} to {{ transform: translateY(-10px); }} }}
+        @keyframes loadBar {{ 0% {{ transform: scaleX(0); }} 50% {{ transform: scaleX(0.7); }} 100% {{ transform: scaleX(1); opacity: 0; }} }}
+        @keyframes pulseText {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.6; }} }}
     </style>
     <div class="bus-overlay">
         <div class="bus-emoji">🚌</div>
         <div class="loading-bar"><div class="loading-progress"></div></div>
-        <div class="loading-text">Cargando ...</div>
+        <div class="loading-text">Cargando flota...</div>
     </div>
     """
     st.markdown(loading_html, unsafe_allow_html=True)

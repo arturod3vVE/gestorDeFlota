@@ -1,0 +1,29 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Streamlit ---
+# Ignorar la carpeta de configuración local (secrets, config)
+.streamlit/
+
+# --- Entornos Virtuales (Virtual Environments) ---
+# Nombres comunes para carpetas de entorno virtual
+venv/
+env/
+.env
+.venv/
+
+# --- Base de Datos (SQLite) ---
+# Si usas SQLite localmente, no quieres subir la DB al repo
+*.db
+*.sqlite3
+
+# --- IDEs y Editores ---
+# Archivos de configuración de VS Code o PyCharm
+.vscode/
+.idea/
+
+# --- Logs y Temporales ---
+*.log
+.DS_Store

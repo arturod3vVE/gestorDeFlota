@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import sys
 import os
+import streamlit.components.v1 as components 
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -11,7 +12,12 @@ from image_gen import obtener_recursos_graficos
 from views import asignacion, taller, configuracion, historial
 
 # 1. Configuración
-st.set_page_config(page_title="Gestor de Flota", page_icon="⛽", layout="wide")
+st.set_page_config(
+    page_title="Gestor de Flota", 
+    page_icon="⛽", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
 # 2. Verificar cierre
 verificar_fase_cierre()
@@ -24,32 +30,29 @@ inyectar_css()
 is_authenticated, cookie_manager = verificar_login()
 
 if is_authenticated:
-    # --- 🧠 LÓGICA INTELIGENTE DE CARGA ---
+    # --- 🧠 LÓGICA DE ESTADO ---
     if 'vista_actual' not in st.session_state: st.session_state.vista_actual = "Asignacion"
-    
-    # Variable para rastrear dónde estábamos antes
     if 'vista_anterior' not in st.session_state: st.session_state.vista_anterior = None
     
-    # Decidimos si mostrar el autobús
     debe_mostrar_loader = False
     
-    # CASO 1: Cambio de vista (ej: Asignación -> Taller)
+    # Detectar cambio de vista
     if st.session_state.vista_actual != st.session_state.vista_anterior:
         debe_mostrar_loader = True
-        st.session_state.vista_anterior = st.session_state.vista_actual # Actualizamos para la próxima
+        st.session_state.vista_anterior = st.session_state.vista_actual 
         
-    # CASO 2: Recarga manual forzada (Botón del sidebar)
+    # Detectar recarga manual
     if st.session_state.get("force_reload"):
         debe_mostrar_loader = True
         st.session_state.force_reload = False
 
-    # --- RENDERIZAR LOADER (SOLO SI ES NECESARIO) ---
+    # --- PASO 1: MOSTRAR AUTOBÚS ---
     loader_placeholder = st.empty()
     if debe_mostrar_loader:
         with loader_placeholder:
             mostrar_bus_loading()
 
-    # --- LÓGICA DE LA APP ---
+    # --- PASO 2: RENDERIZAR VISTA (Detrás del bus) ---
     usuario_actual = st.session_state.usuario_actual
     
     def cambiar_vista(nueva_vista): st.session_state.vista_actual = nueva_vista
@@ -75,11 +78,10 @@ if is_authenticated:
         st.write("🔄 **Sincronización**")
         modo_vivo = st.toggle("📡 Modo Vivo", value=False)
         
-        # Botón especial que SÍ activa el autobús
         if st.button("🔄 Recargar Manual", use_container_width=True):
             if 'datos_app' in st.session_state: del st.session_state['datos_app']
             if 'reporte_diario' in st.session_state: del st.session_state['reporte_diario']
-            st.session_state.force_reload = True # Activamos bandera
+            st.session_state.force_reload = True 
             st.rerun()
             
         st.write("") 
@@ -100,6 +102,48 @@ if is_authenticated:
         if 'datos_app' in st.session_state: del st.session_state['datos_app']
         st.rerun()
 
+    # --- PASO 3: SECUENCIA DE REVELADO Y CIERRE ---
     if debe_mostrar_loader:
-        time.sleep(0.5)
+        
+        # 1. Quitamos el autobús PRIMERO
+        # El usuario verá la nueva pantalla con el menú todavía abierto.
         loader_placeholder.empty()
+        
+        # 2. Pequeña pausa dramática (0.3s)
+        # Esto permite que el usuario vea el menú abierto un instante
+        time.sleep(0.3)
+        
+        # 3. AHORA lanzamos el JavaScript para cerrarlo
+        # El usuario verá la animación de cierre (slide-out)
+        ts = time.time()
+        js_close_sidebar = f"""
+        <script>
+            // Timestamp: {ts}
+            function intentarCerrar() {{
+                const doc = window.parent.document;
+                const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                if (sidebar) {{
+                    const esExpandido = sidebar.getAttribute("aria-expanded") === "true";
+                    if (esExpandido) {{
+                        const header = sidebar.querySelector('[data-testid="stSidebarHeader"]');
+                        if (header) {{
+                            const btn = header.querySelector('button');
+                            if (btn) {{ btn.click(); return true; }}
+                        }}
+                        const collapseBtn = doc.querySelector('button[data-testid="baseButton-headerNoPadding"]');
+                        if (collapseBtn) {{ collapseBtn.click(); return true; }}
+                    }}
+                }}
+                return false;
+            }}
+            
+            // Reintentar por si acaso el DOM está lento
+            let intentos = 0;
+            const intervalo = setInterval(() => {{
+                intentarCerrar();
+                intentos++;
+                if (intentos >= 10) clearInterval(intervalo);
+            }}, 50);
+        </script>
+        """
+        components.html(js_close_sidebar, height=0, width=0)
