@@ -3,15 +3,14 @@ import time
 from database import guardar_datos_db
 
 # ==========================================
-# 1. CSS RESPONSIVE INTELIGENTE
+# 1. CSS FINAL (CONTROL TOTAL DE PÍXELES)
 # ==========================================
 def inyectar_css_final():
     st.markdown("""
         <style>
         /* ============================================================
-           ZONA 1: ESTILOS BASE (GLOBALES)
+           ZONA 0: ESTILOS BASE (GLOBALES)
            ============================================================ */
-        
         button[kind="secondary"] {
             background-color: #f8f9fa !important;
             border: 1px solid #dee2e6 !important;
@@ -24,15 +23,9 @@ def inyectar_css_final():
             background-color: #fff !important;
         }
         
-        /* Quitamos sombras excesivas para ganar limpieza en móvil */
         section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
             box-shadow: 0 1px 1px rgba(0,0,0,0.05) !important;
-            border-radius: 6px !important; /* Bordes un poco menos redondeados para ganar área */
-        }
-
-        section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
-            white-space: nowrap !important;
-            font-weight: 800 !important; /* Más negrita para leer mejor */
+            border-radius: 6px !important;
         }
 
         /* Restaurar Menú Lateral y Modales */
@@ -43,57 +36,68 @@ def inyectar_css_final():
             aspect-ratio: auto !important;
         }
 
-        /* ============================================================
-           ZONA 2: MÓVIL (MAXIMIZAR TAMAÑO DE BOTONES)
-           Aquí está el cambio principal para tu problema
-           ============================================================ */
-        @media (max-width: 640px) {
+        @media (min-width: 381px) and (max-width: 640px) {
             
-            /* 1. Grid Ultra Compacto */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) {
                 display: grid !important;
                 grid-template-columns: repeat(6, 1fr) !important;
-                gap: 2px !important; /* CAMBIO: Reducido de 4px a 2px */
-                padding: 0px !important; /* CAMBIO: Eliminado relleno externo */
+                gap: 2px !important;
+                padding: 1px !important;
                 margin: 0px !important;
             }
 
-            /* 2. Cero espacio en columnas */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) div[data-testid="column"] {
-                width: auto !important;
-                min-width: 0px !important;
-                flex: 1 !important;
-                padding: 0px !important;
-                margin: 0px !important;
+                width: auto !important; min-width: 0px !important; flex: 1 !important; padding: 0px !important;
             }
 
-            /* 3. Botones aprovechan todo el espacio */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
                 width: 100% !important;
                 aspect-ratio: 1 / 1 !important;
-                padding: 0px !important;
+                padding: 0px !important; margin: 0px !important; min-width: 0px !important;
+                display: flex !important; flex-direction: column !important;
+                justify-content: center !important; align-items: center !important;
+                line-height: 1.1 !important;
+            }
+
+            /* TEXTO: Aquí aumentamos el tamaño para que se vea mejor */
+            section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
+                white-space: pre !important; 
+                font-size: 12px !important; /* AUMENTADO (Antes 10px) */
                 margin: 0px !important;
-                
+                font-weight: 800 !important;
+                letter-spacing: -0.5px !important;
+            }
+        }
+
+        @media (max-width: 380px) {
+            
+            /* Dejamos que Streamlit apile las columnas (Flex Column) */
+            section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) {
                 display: flex !important;
                 flex-direction: column !important;
-                justify-content: center !important;
-                align-items: center !important;
-                line-height: 1.0 !important;
+                gap: 10px !important;
             }
-            
-            /* Texto optimizado */
+
+            /* Reseteamos los botones a su forma natural rectangular */
+            section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
+                width: 100% !important;
+                aspect-ratio: auto !important; /* Ya no cuadrados */
+                padding: 10px !important;
+                display: flex !important;
+                flex-direction: row !important; /* Icono al lado del texto */
+                justify-content: center !important;
+            }
+
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
-                font-size: 11px !important; /* CAMBIO: Subí a 11px porque el botón ahora es más grande */
-                margin: 0px !important;
-                letter-spacing: -0.5px !important; /* Juntar letras para que quepan números grandes */
+                font-size: 14px !important;
+                white-space: normal !important;
             }
         }
 
         /* ============================================================
-           ZONA 3: ESCRITORIO (Mantiene tu configuración anterior)
+           ZONA 4: ESCRITORIO (> 640px)
            ============================================================ */
         @media (min-width: 641px) {
-            
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
                 width: 100% !important;
                 min-height: 60px !important;
@@ -102,6 +106,7 @@ def inyectar_css_final():
             
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
                 font-size: 14px !important;
+                white-space: nowrap !important;
             }
             
             div[data-testid="column"] {
@@ -163,9 +168,10 @@ def render_vista(usuario_actual):
     
     for i in range(0, len(all_u), columnas_por_fila):
         fila = all_u[i : i + columnas_por_fila]
-        cols = st.columns(columnas_por_fila) # Sin gap manual
+        cols = st.columns(columnas_por_fila)
         
         for j, u in enumerate(fila):
+            # Python siempre manda el icono. CSS decide si lo oculta o no.
             if u in avs:
                 label = f"🛠️\n{u}"
                 tipo = "primary"
