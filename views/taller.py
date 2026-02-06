@@ -9,12 +9,9 @@ def inyectar_css_final():
     st.markdown("""
         <style>
         /* ============================================================
-           ZONA 1: ESTILOS BASE (APLICAN A TODAS LAS PANTALLAS)
-           Solo "maquillaje" (colores, sombras, bordes).
-           No tocamos tamaños ni posiciones aquí.
+           ZONA 1: ESTILOS BASE (GLOBALES)
            ============================================================ */
         
-        /* Botones Grises (Secundarios) más sólidos */
         button[kind="secondary"] {
             background-color: #f8f9fa !important;
             border: 1px solid #dee2e6 !important;
@@ -27,19 +24,18 @@ def inyectar_css_final():
             background-color: #fff !important;
         }
         
-        /* Sombra suave para todos los botones del taller */
+        /* Quitamos sombras excesivas para ganar limpieza en móvil */
         section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
-            border-radius: 8px !important;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05) !important;
+            border-radius: 6px !important; /* Bordes un poco menos redondeados para ganar área */
         }
 
-        /* Texto de los botones: Evitar que se rompa */
         section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
             white-space: nowrap !important;
-            font-weight: 700 !important;
+            font-weight: 800 !important; /* Más negrita para leer mejor */
         }
 
-        /* Restaurar Menú Lateral y Modales (Siempre protegidos) */
+        /* Restaurar Menú Lateral y Modales */
         section[data-testid="stSidebar"] button,
         div[role="dialog"] button {
             width: 100% !important;
@@ -47,30 +43,37 @@ def inyectar_css_final():
             aspect-ratio: auto !important;
         }
 
+        /* ============================================================
+           ZONA 2: MÓVIL (MAXIMIZAR TAMAÑO DE BOTONES)
+           Aquí está el cambio principal para tu problema
+           ============================================================ */
         @media (max-width: 640px) {
             
-            /* 1. Forzar Grid de 6 */
+            /* 1. Grid Ultra Compacto */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) {
                 display: grid !important;
                 grid-template-columns: repeat(6, 1fr) !important;
-                gap: 4px !important;
-                padding: 2px !important;
+                gap: 2px !important; /* CAMBIO: Reducido de 4px a 2px */
+                padding: 0px !important; /* CAMBIO: Eliminado relleno externo */
+                margin: 0px !important;
             }
 
-            /* 2. Resetear columnas para que obedezcan al grid */
+            /* 2. Cero espacio en columnas */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) div[data-testid="column"] {
                 width: auto !important;
                 min-width: 0px !important;
                 flex: 1 !important;
                 padding: 0px !important;
+                margin: 0px !important;
             }
 
-            /* 3. Botones Cuadrados y Pequeños */
+            /* 3. Botones aprovechan todo el espacio */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
                 width: 100% !important;
                 aspect-ratio: 1 / 1 !important;
                 padding: 0px !important;
                 margin: 0px !important;
+                
                 display: flex !important;
                 flex-direction: column !important;
                 justify-content: center !important;
@@ -78,30 +81,31 @@ def inyectar_css_final():
                 line-height: 1.0 !important;
             }
             
-            /* Texto pequeño */
+            /* Texto optimizado */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
-                font-size: 10px !important;
+                font-size: 11px !important; /* CAMBIO: Subí a 11px porque el botón ahora es más grande */
                 margin: 0px !important;
+                letter-spacing: -0.5px !important; /* Juntar letras para que quepan números grandes */
             }
         }
 
+        /* ============================================================
+           ZONA 3: ESCRITORIO (Mantiene tu configuración anterior)
+           ============================================================ */
         @media (min-width: 641px) {
             
-            /* Hacemos que los botones llenen su columna nativa */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button {
                 width: 100% !important;
-                min-height: 60px !important; /* Altura cómoda */
+                min-height: 60px !important;
                 padding: 10px !important;
             }
             
-            /* Texto más grande */
             section[data-testid="stMain"] div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) button p {
                 font-size: 14px !important;
             }
             
-            /* Reducimos un poco el gap nativo de Streamlit si es necesario */
             div[data-testid="column"] {
-                padding: 0 4px !important; /* Un poquito de aire lateral */
+                padding: 0 4px !important;
             }
         }
         </style>
@@ -159,7 +163,7 @@ def render_vista(usuario_actual):
     
     for i in range(0, len(all_u), columnas_por_fila):
         fila = all_u[i : i + columnas_por_fila]
-        cols = st.columns(columnas_por_fila) # Sin gap manual, dejamos que CSS controle
+        cols = st.columns(columnas_por_fila) # Sin gap manual
         
         for j, u in enumerate(fila):
             if u in avs:
