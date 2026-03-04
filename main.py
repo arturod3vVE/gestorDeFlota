@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from utils import inyectar_css, verificar_login, verificar_fase_cierre, mostrar_bus_loading
 from database import cargar_datos_db, recuperar_historial_por_fecha
-from image_gen import obtener_recursos_graficos 
+from image_gen import generar_imagen_en_memoria
 from views import asignacion, taller, configuracion, historial
 
 # 1. Configuración
