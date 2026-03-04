@@ -23,7 +23,7 @@ st.set_page_config(
 verificar_fase_cierre()
 
 # 3. Pre-carga
-obtener_recursos_graficos() 
+generar_imagen_en_memoria() 
 
 # 4. Estilos y Auth
 inyectar_css()
