@@ -1,51 +1,32 @@
 import os
-import requests
 import re
+import requests
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
 import streamlit as st
 
-# --- RUTAS ABSOLUTAS ---
+# --- RUTAS ABSOLUTAS LOCALES ---
+# Esto buscará las fuentes en la misma carpeta donde está este script
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_REGULAR = os.path.join(BASE_DIR, "Roboto-Regular.ttf")
 FONT_BOLD = os.path.join(BASE_DIR, "Roboto-Bold.ttf")
 ICONO_BOMBA = os.path.join(BASE_DIR, "icono_bomba.png")
 
-def descargar_recurso(url, filepath, descripcion):
-    """Descarga un archivo asegurando que no esté corrupto o vacío (min 10KB para fuentes)."""
-    if os.path.exists(filepath):
-        if os.path.getsize(filepath) > 10000:
-            return True
-        else:
-            try: os.remove(filepath)
-            except: pass
-
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200 and len(r.content) > 10000:
-            with open(filepath, 'wb') as f:
-                f.write(r.content)
-            return True
-    except Exception as e:
-        print(f"❌ Error en la red o permisos al descargar {descripcion}: {e}")
-    return False
-
 @st.cache_resource
-def obtener_recursos_graficos():
-    """Descarga recursos gráficos y los guarda en caché solo si son válidos."""
-    descargar_recurso(
-        "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.ttf",
-        FONT_REGULAR, "Fuente Regular"
-    )
-    descargar_recurso(
-        "https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf",
-        FONT_BOLD, "Fuente Bold"
-    )
-    
+def obtener_icono_local():
+    """Descarga el icono si no existe, o lo carga desde el disco."""
     img_icon = None
     url_icon = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26fd.png"
-    if descargar_recurso(url_icon, ICONO_BOMBA, "Icono"):
+    
+    if not os.path.exists(ICONO_BOMBA):
+        try:
+            r = requests.get(url_icon, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+            if r.status_code == 200:
+                with open(ICONO_BOMBA, 'wb') as f:
+                    f.write(r.content)
+        except: pass
+        
+    if os.path.exists(ICONO_BOMBA):
         try:
             img_icon = Image.open(ICONO_BOMBA).convert("RGBA")
             img_icon = img_icon.resize((40, 40))
@@ -53,37 +34,24 @@ def obtener_recursos_graficos():
         
     return img_icon
 
-def cargar_fuente_segura(tipo, tamaño):
-    """Intenta cargar la fuente, si falla la elimina y usa fuentes del servidor Linux."""
-    ruta_objetivo = FONT_BOLD if tipo == "bold" else FONT_REGULAR
-    
-    if os.path.exists(ruta_objetivo):
-        try:
-            return ImageFont.truetype(ruta_objetivo, tamaño)
-        except Exception:
-            # Si el archivo existe pero ImageFont falla, está corrupto.
-            try: os.remove(ruta_objetivo)
-            except: pass
-    
-    # Fallbacks comunes en servidores de producción (Debian/Ubuntu)
-    fuentes_linux = [
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "Arial.ttf"
-    ]
-    
-    for f in fuentes_linux:
-        try: return ImageFont.truetype(f, tamaño)
-        except: continue
-            
-    return ImageFont.load_default()
+def cargar_fuente_local(ruta_fuente, tamaño):
+    """Carga la fuente directamente desde el archivo local."""
+    if not os.path.exists(ruta_fuente):
+        print(f"⚠️ ERROR: No se encontró el archivo {ruta_fuente}. Asegúrate de subirlo al servidor.")
+        return ImageFont.load_default()
+        
+    try:
+        return ImageFont.truetype(ruta_fuente, tamaño)
+    except Exception as e:
+        print(f"⚠️ Error cargando {ruta_fuente}: {e}")
+        return ImageFont.load_default()
 
 def limpiar_texto(texto):
+    # Se mantienen los caracteres válidos, incluyendo tildes y eñes
     return re.sub(r'[^\w\s\.,:;\-\(\)\/áéíóúÁÉÍÓÚñÑ]', '', str(texto))
 
 def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
-    # Aseguramos recursos
-    icon_res = obtener_recursos_graficos()
+    icon_res = obtener_icono_local()
     
     ANCHO = config_datos.get("img_width", 450)
     FONT_S = config_datos.get("font_size", 24)
@@ -95,10 +63,10 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
     LH = int(FONT_S * 1.3)
     GAP = int(FONT_S * 1.5)
     
-    # Cargamos fuentes
-    f_ti = cargar_fuente_segura("bold", FONT_S + 4)
-    f_bd = cargar_fuente_segura("bold", FONT_S)
-    f_no = cargar_fuente_segura("regular", FONT_S)
+    # Cargamos las fuentes LOCALES directamente
+    f_ti = cargar_fuente_local(FONT_BOLD, FONT_S + 4)
+    f_bd = cargar_fuente_local(FONT_BOLD, FONT_S)
+    f_no = cargar_fuente_local(FONT_REGULAR, FONT_S)
 
     img = Image.new('RGB', (ANCHO, 3000), color=BG)
     d = ImageDraw.Draw(img)
