@@ -22,9 +22,6 @@ st.set_page_config(
 # 2. Verificar cierre
 verificar_fase_cierre()
 
-# 3. Pre-carga
-generar_imagen_en_memoria() 
-
 # 4. Estilos y Auth
 inyectar_css()
 is_authenticated, cookie_manager = verificar_login()
