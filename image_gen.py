@@ -12,52 +12,37 @@ FONT_BOLD = os.path.join(BASE_DIR, "Roboto-Bold.ttf")
 ICONO_BOMBA = os.path.join(BASE_DIR, "icono_bomba.png")
 
 def descargar_recurso(url, filepath, descripcion):
-    """Descarga un archivo con validación."""
-    print(f"🔄 [Sistema] Verificando {descripcion}...")
-    
-    # Si el archivo existe pero la carga falla (0 bytes o corrupto), lo borramos preventivamente
+    """Descarga un archivo asegurando que no esté corrupto o vacío (min 10KB para fuentes)."""
     if os.path.exists(filepath):
-        if os.path.getsize(filepath) < 5000: # Menos de 5KB no es una fuente real
-            print(f"🗑️ [Sistema] {descripcion} parece corrupto. Borrando...")
+        if os.path.getsize(filepath) > 10000:
+            return True
+        else:
             try: os.remove(filepath)
             except: pass
 
-    if not os.path.exists(filepath):
-        try:
-            print(f"⬇️ [Sistema] Descargando {descripcion} desde la nube...")
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(url, headers=headers, timeout=10)
-            
-            if r.status_code == 200:
-                with open(filepath, 'wb') as f:
-                    f.write(r.content)
-                print(f"✅ [Sistema] {descripcion} descargado ({os.path.getsize(filepath)} bytes).")
-                return True
-            else:
-                print(f"❌ [Sistema] Falló descarga {descripcion}. Código: {r.status_code}")
-                return False
-        except Exception as e:
-            print(f"❌ [Sistema] Error red {descripcion}: {e}")
-            return False
-    return True
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 200 and len(r.content) > 10000:
+            with open(filepath, 'wb') as f:
+                f.write(r.content)
+            return True
+    except Exception as e:
+        print(f"❌ Error en la red o permisos al descargar {descripcion}: {e}")
+    return False
 
 @st.cache_resource
 def obtener_recursos_graficos():
-    """Descarga recursos gráficos."""
-    
-    # 1. FUENTES (Enlaces directos de Gstatic - Más estables)
-    # Roboto Regular
+    """Descarga recursos gráficos y los guarda en caché solo si son válidos."""
     descargar_recurso(
         "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.ttf",
         FONT_REGULAR, "Fuente Regular"
     )
-    # Roboto Bold
     descargar_recurso(
         "https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlfBBc4.ttf",
         FONT_BOLD, "Fuente Bold"
     )
     
-    # 2. ICONO
     img_icon = None
     url_icon = "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/26fd.png"
     if descargar_recurso(url_icon, ICONO_BOMBA, "Icono"):
@@ -69,38 +54,28 @@ def obtener_recursos_graficos():
     return img_icon
 
 def cargar_fuente_segura(tipo, tamaño):
-    """
-    Intenta cargar:
-    1. Fuente descargada (Roboto).
-    2. Fuente del sistema Linux (DejaVu/Liberation).
-    3. Default (Pixelada).
-    """
+    """Intenta cargar la fuente, si falla la elimina y usa fuentes del servidor Linux."""
     ruta_objetivo = FONT_BOLD if tipo == "bold" else FONT_REGULAR
     
-    # INTENTO 1: Fuente Descargada
-    try:
-        return ImageFont.truetype(ruta_objetivo, tamaño)
-    except Exception:
-        # Si falla, borramos el archivo corrupto para el siguiente reinicio
-        if os.path.exists(ruta_objetivo):
-            print(f"⚠️ Archivo corrupto detectado: {ruta_objetivo}. Eliminando.")
+    if os.path.exists(ruta_objetivo):
+        try:
+            return ImageFont.truetype(ruta_objetivo, tamaño)
+        except Exception:
+            # Si el archivo existe pero ImageFont falla, está corrupto.
             try: os.remove(ruta_objetivo)
             except: pass
     
-    # INTENTO 2: Fuentes comunes de Linux (Tu caso: /home/r2d2)
+    # Fallbacks comunes en servidores de producción (Debian/Ubuntu)
     fuentes_linux = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "DejaVuSans.ttf",
-        "arial.ttf"
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if tipo == "bold" else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "Arial.ttf"
     ]
     
     for f in fuentes_linux:
         try: return ImageFont.truetype(f, tamaño)
         except: continue
             
-    # INTENTO 3: Default (Fea pero funciona)
-    print("⚠️ Usando fuente por defecto (Fallback)")
     return ImageFont.load_default()
 
 def limpiar_texto(texto):
@@ -120,7 +95,7 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
     LH = int(FONT_S * 1.3)
     GAP = int(FONT_S * 1.5)
     
-    # Cargamos fuentes (Ahora con fallback a Linux)
+    # Cargamos fuentes
     f_ti = cargar_fuente_segura("bold", FONT_S + 4)
     f_bd = cargar_fuente_segura("bold", FONT_S)
     f_no = cargar_fuente_segura("regular", FONT_S)
@@ -139,7 +114,6 @@ def generar_imagen_en_memoria(reporte_lista, fecha_dt, rango_txt, config_datos):
         words = txt.split()
         
         for w in words:
-            # Medir palabra
             bbox = d.textbbox((0,0), w, font=fnt)
             w_word = bbox[2] - bbox[0]
             
