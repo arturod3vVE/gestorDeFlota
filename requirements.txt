@@ -7,3 +7,5 @@ qrcode
 pillow
 extra-streamlit-components
 openpyxl
+pytz
+pandas
